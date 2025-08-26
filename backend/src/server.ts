@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import path from 'path';
+// import path from 'path'; // Removed for Railway deployment
 import { uploadRouter } from './routes/upload';
 import { validationRouter } from './routes/validation';
 import { reportRouter } from './routes/report';
@@ -42,7 +42,16 @@ const uploadLimiter = rateLimit({
 app.use(compression());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://setukreview-production.up.railway.app'] 
+    ? (origin: string | undefined, callback: (error: Error | null, success?: boolean) => void) => {
+        // Allow Railway domains and the specific production domain
+        if (!origin || 
+            origin.includes('.up.railway.app') || 
+            origin === 'https://setukreview-production.up.railway.app') {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'), false);
+        }
+      }
     : ['http://localhost:3000', 'http://localhost:3001'],
   credentials: true,
 }));
@@ -55,7 +64,7 @@ app.use('/api/validation', validationRouter);
 app.use('/api/report', reportRouter);
 
 // Health check
-app.get('/api/health', (req: Request, res: Response) => {
+app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
@@ -63,22 +72,15 @@ app.get('/api/health', (req: Request, res: Response) => {
   });
 });
 
-// Serve static files from React build in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../frontend/build')));
-  
-  app.get('*', (req: Request, res: Response) => {
-    res.sendFile(path.join(__dirname, '../frontend/build/index.html'));
-  });
-}
+// API-only backend for Railway deployment
 
 // 404 handler
-app.use('*', (req: Request, res: Response) => {
+app.use('*', (_req: Request, res: Response) => {
   res.status(404).json({ error: 'Not Found' });
 });
 
 // Error handler
-app.use((err: Error, req: Request, res: Response, next: any) => {
+app.use((err: Error, _req: Request, res: Response, _next: any) => {
   console.error('Server Error:', err);
   res.status(500).json({ 
     error: process.env.NODE_ENV === 'production' 

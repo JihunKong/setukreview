@@ -2,7 +2,7 @@ import axios from 'axios';
 import { ValidationResult, FileUploadResult, ValidationStats } from '../types/validation';
 
 const API_BASE = process.env.NODE_ENV === 'production' 
-  ? '' 
+  ? process.env.REACT_APP_API_URL || 'https://setukreview-backend-production.up.railway.app'
   : 'http://localhost:8080';
 
 const api = axios.create({
