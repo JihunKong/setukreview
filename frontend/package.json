@@ -27,7 +27,8 @@
     "eject": "react-scripts eject",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "dev": "react-scripts start"
+    "dev": "react-scripts start",
+    "railway-start": "node server.js"
   },
   "eslintConfig": {
     "extends": [

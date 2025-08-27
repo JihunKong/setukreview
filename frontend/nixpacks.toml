@@ -18,6 +18,6 @@ cmds = [
   "echo 'Build directory contents:' && ls -la build/"
 ]
 
-# Explicitly override Railway's start command
+# Multiple attempts to override Railway's start command
 [start]
-cmd = "node server.js"
+cmd = "npm run railway-start"
