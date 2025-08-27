@@ -107,29 +107,40 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
 
+    console.log(`🚀 Starting multi-file upload with ${selectedFiles.length} files`);
+
     setIsUploading(true);
     setUploadProgress(0);
     setUploadedFiles([]);
 
     try {
       // First, create a session
+      console.log('📝 Creating upload session...');
       setCurrentlyUploading('세션 생성 중...');
       const sessionData = await fileUploadApi.createSession('anonymous');
       
+      console.log('📝 Session creation result:', sessionData);
+      
       if (!sessionData.success) {
-        throw new Error('세션 생성에 실패했습니다.');
+        throw new Error(`세션 생성 실패: ${sessionData.error || '알 수 없는 오류'}`);
       }
 
       const sessionId = sessionData.sessionId;
+      console.log(`✅ Session created: ${sessionId}`);
       setUploadProgress(25);
 
       // Upload files to the session
+      console.log(`📤 Uploading ${selectedFiles.length} files to session...`);
+      console.log('Files to upload:', selectedFiles.map(f => ({ name: f.name, size: f.size })));
+      
       setCurrentlyUploading('파일 업로드 중...');
       const uploadResult = await fileUploadApi.uploadMultipleFiles(sessionId, selectedFiles);
       setUploadProgress(75);
       
+      console.log('📤 Upload result:', uploadResult);
+      
       if (!uploadResult.success) {
-        throw new Error(uploadResult.error || '파일 업로드에 실패했습니다.');
+        throw new Error(`파일 업로드 실패: ${uploadResult.error || '알 수 없는 오류'}`);
       }
 
       // Convert backend FileCategory to frontend UploadedFile format
@@ -146,23 +157,31 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
         metadata: file.metadata,
       }));
 
+      console.log(`✅ Successfully converted ${convertedFiles.length} files`);
       setUploadedFiles(convertedFiles);
       setUploadProgress(100);
 
       // Report any errors
       if (uploadResult.errors && uploadResult.errors.length > 0) {
+        console.warn('⚠️ Some files had errors:', uploadResult.errors);
         onError(`일부 파일 업로드 실패:\n${uploadResult.errors.join('\n')}`);
       }
 
       // Success callback
+      console.log('🎉 Upload process completed successfully');
       onSessionCreated(sessionId, convertedFiles);
 
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error('❌ Multi-file upload failed:', {
+        error: error,
+        message: error instanceof Error ? error.message : '알 수 없는 오류',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       if (error instanceof Error) {
-        onError(error.message);
+        onError(`업로드 실패: ${error.message}`);
       } else {
-        onError('파일 업로드 중 오류가 발생했습니다.');
+        onError('파일 업로드 중 예상치 못한 오류가 발생했습니다.');
       }
     } finally {
       setIsUploading(false);

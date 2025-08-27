@@ -5,31 +5,58 @@ const API_BASE = process.env.NODE_ENV === 'production'
   ? process.env.REACT_APP_API_URL || 'https://setukreview-backend-production.up.railway.app'
   : 'http://localhost:3001';
 
+console.log(`🌍 API Configuration - Environment: ${process.env.NODE_ENV}, API_BASE: ${API_BASE}`);
+
 const api = axios.create({
   baseURL: `${API_BASE}/api`,
-  timeout: 60000, // 1 minute timeout for file uploads
+  timeout: 300000, // 5 minutes timeout for file uploads
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-// Request interceptor to add auth headers if needed
+// Request interceptor to add auth headers and logging
 api.interceptors.request.use(
   (config) => {
-    // Add any authentication headers here if needed
+    console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`, {
+      baseURL: config.baseURL,
+      headers: config.headers,
+    });
     return config;
   },
   (error) => {
+    console.error('📤 API Request Error:', error);
     return Promise.reject(error);
   }
 );
 
-// Response interceptor for error handling
+// Response interceptor for error handling and logging
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log(`📥 API Response: ${response.status} ${response.config.method?.toUpperCase()} ${response.config.url}`, {
+      status: response.status,
+      data: response.data
+    });
+    return response;
+  },
   (error) => {
+    console.error('📥 API Response Error:', {
+      message: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      url: error.config?.url,
+      baseURL: error.config?.baseURL
+    });
+    
     if (error.response?.status === 429) {
       throw new Error('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
     }
     if (error.response?.status >= 500) {
       throw new Error('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    }
+    if (error.code === 'NETWORK_ERROR' || !error.response) {
+      throw new Error('네트워크 연결을 확인해주세요.');
     }
     return Promise.reject(error);
   }
@@ -61,12 +88,17 @@ export const fileUploadApi = {
   },
 
   uploadMultipleFiles: async (sessionId: string, files: File[]) => {
+    console.log(`📤 Preparing to upload ${files.length} files to session ${sessionId}`);
+    
     const formData = new FormData();
-    files.forEach(file => formData.append('files', file));
+    files.forEach((file, index) => {
+      console.log(`📄 Adding file ${index + 1}: ${file.name} (${file.size} bytes)`);
+      formData.append('files', file);
+    });
 
     const response = await api.post(`/upload/multiple/${sessionId}`, formData, {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        // Let axios set Content-Type automatically for multipart/form-data
       },
       timeout: 300000, // 5 minutes for multiple file uploads
     });

@@ -70,6 +70,17 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Log app initialization
+  useEffect(() => {
+    console.log('🚀 SetuKReview App v1.1.0 Starting...');
+    console.log('🔧 Environment Info:', {
+      NODE_ENV: process.env.NODE_ENV,
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      location: window.location.href,
+    });
+  }, []);
+
   // Update categories when files change
   useEffect(() => {
     if (uploadedFiles.length > 0) {
