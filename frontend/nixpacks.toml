@@ -1,4 +1,4 @@
-# Force explicit Nixpacks configuration for Railway
+# Railway production configuration
 [variables]
 NODE_ENV = "production"
 
@@ -6,19 +6,10 @@ NODE_ENV = "production"
 nixPkgs = ["nodejs-18_x"]
 
 [phases.install] 
-cmds = [
-  "npm ci --only=production",
-  "npm ci --only=dev"
-]
+cmds = ["npm ci"]
 
 [phases.build]
-cmds = [
-  "npm run build",
-  "chmod +x start-production.sh",
-  "ls -la build/",
-  "echo 'Build directory contents:' && ls -la build/"
-]
+cmds = ["npm run build"]
 
-# Final override attempt with explicit script execution
 [start]
-cmd = "./start-production.sh"
+cmd = "node server.js"
