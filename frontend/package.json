@@ -28,6 +28,10 @@
     "typecheck": "tsc --noEmit",
     "dev": "react-scripts start"
   },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.1.5",
     "@testing-library/react": "^14.1.2",
