@@ -5,6 +5,7 @@
 - **목적**: 나이스(NEIS)에서 다운받은 엑셀 파일을 업로드하여 자동 점검
 - **개선 방향**: 하드코딩된 부분 보완 및 AI 검증 기능 추가
 - **배포 환경**: Railway
+- **Github repository**: https://github.com/JihunKong/setukreview
 
 ## 🎯 핵심 요구사항
 
