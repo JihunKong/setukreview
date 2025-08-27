@@ -43,6 +43,49 @@ export interface ExcelData {
   };
   fileName: string;
   fileSize: number;
+  format?: 'generic' | 'neis';
+  neisData?: NEISProcessedData;
+}
+
+// NEIS-specific data structures
+export interface NEISProcessedData {
+  students: NEISStudentRecord[];
+  metadata: {
+    processingDate: Date;
+    totalStudents: number;
+    totalSections: number;
+    detectedFormat: 'NEIS';
+  };
+}
+
+export interface NEISStudentRecord {
+  studentInfo: {
+    name: string;
+    studentNumber: string;
+    class: string;
+    grade: string;
+    school: string;
+    birthDate?: string;
+    gender?: string;
+  };
+  sections: {
+    [sectionName: string]: NEISSectionData;
+  };
+  metadata: {
+    recordType: 'NEIS';
+    processingDate: Date;
+    totalSections: number;
+    totalDataCells: number;
+  };
+}
+
+export interface NEISSectionData {
+  title: string;
+  startRow: number;
+  endRow: number;
+  data: string[][];
+  headers: string[];
+  contentRows: string[][];
 }
 
 export interface ValidationRule {
@@ -67,6 +110,19 @@ export interface ValidationContext {
     right?: string;
     above?: string;
     below?: string;
+  };
+  neisContext?: {
+    studentInfo: {
+      name: string;
+      studentNumber: string;
+      class: string;
+      grade: string;
+      school: string;
+    };
+    sectionName: string;
+    sectionType: string;
+    isHeaderRow: boolean;
+    isContentRow: boolean;
   };
 }
 

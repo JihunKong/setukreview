@@ -4,6 +4,23 @@ import { ValidationService } from '../services/ValidationService';
 
 const router = express.Router();
 
+// Ensure CORS headers for all validation endpoints
+router.use((req: Request, res: Response, next: any) => {
+  const origin = req.headers.origin;
+  if (origin && (origin.includes('.up.railway.app') || origin.includes('localhost') || process.env.NODE_ENV !== 'production')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  }
+  next();
+});
+
+// Handle preflight OPTIONS requests
+router.options('*', (req: Request, res: Response) => {
+  res.status(200).end();
+});
+
 // Get validation status and progress
 router.get('/:id', [
   param('id').isUUID().withMessage('Invalid validation ID')
