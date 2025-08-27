@@ -3,7 +3,7 @@ import { ValidationResult, FileUploadResult, ValidationStats } from '../types/va
 
 const API_BASE = process.env.NODE_ENV === 'production' 
   ? process.env.REACT_APP_API_URL || 'https://setukreview-backend-production.up.railway.app'
-  : 'http://localhost:8080';
+  : 'http://localhost:3001';
 
 const api = axios.create({
   baseURL: `${API_BASE}/api`,

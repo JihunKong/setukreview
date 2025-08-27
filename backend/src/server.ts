@@ -9,7 +9,7 @@ import { validationRouter } from './routes/validation';
 import { reportRouter } from './routes/report';
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '8080', 10);
+const PORT = parseInt(process.env.PORT || (process.env.NODE_ENV === 'production' ? '8080' : '3001'), 10);
 
 // Security middleware
 app.use(helmet({
@@ -83,7 +83,8 @@ app.use(cors({
       'https://setukreview-frontend-production.up.railway.app',
       'https://setukreview-backend-production.up.railway.app',
       'http://localhost:3000',
-      'http://localhost:3001'
+      'http://localhost:3001',
+      'http://localhost:8080'
     ];
     
     if (process.env.NODE_ENV === 'production') {
@@ -112,7 +113,8 @@ app.use((req: Request, res: Response, next: any) => {
       'https://setukreview-frontend-production.up.railway.app',
       'https://setukreview-backend-production.up.railway.app',
       'http://localhost:3000',
-      'http://localhost:3001'
+      'http://localhost:3001',
+      'http://localhost:8080'
     ];
     
     if (allowedOrigins.includes(origin) || origin.includes('.up.railway.app') || process.env.NODE_ENV !== 'production') {

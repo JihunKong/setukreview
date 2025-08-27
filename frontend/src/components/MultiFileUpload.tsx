@@ -190,9 +190,11 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
   };
 
   const getCategoryDisplayName = (category: string): string => {
+    // Backend returns Korean category names directly, so we just return them
+    // with fallback mapping for any English keys that might exist
     const categoryNames: Record<string, string> = {
       'attendance': '출결상황',
-      'personal_details': '개인세부능력 및 특기사항',
+      'personal_details': '개인세부능력 및 특기사항', 
       'personal_info': '인적사항',
       'academic_records': '교과학습발달상황',
       'behavior_records': '행동특성 및 종합의견',
@@ -203,6 +205,15 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
       'awards': '수상경력',
       'qualifications': '자격증 및 인증 취득상황',
       'generic': '일반파일',
+      // Korean categories from backend
+      '출결상황': '출결상황',
+      '개인세부능력': '개인세부능력 및 특기사항',
+      '인적사항': '인적사항',
+      '수상경력': '수상경력',
+      '창의적체험활동': '창의적체험활동',
+      '독서활동': '독서활동상황',
+      '행동특성및종합의견': '행동특성 및 종합의견',
+      '기타': '기타',
     };
     return categoryNames[category] || category;
   };
