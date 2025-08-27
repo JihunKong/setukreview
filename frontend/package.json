@@ -17,7 +17,8 @@
     "axios": "^1.6.2",
     "typescript": "^4.9.5",
     "web-vitals": "^3.5.0",
-    "@fontsource/noto-sans-kr": "^5.0.16"
+    "@fontsource/noto-sans-kr": "^5.0.16",
+    "express": "^4.18.2"
   },
   "scripts": {
     "start": "node server.js",
@@ -45,24 +46,6 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "dependencies": {
-    "@mui/material": "^5.15.3",
-    "@mui/icons-material": "^5.15.3",
-    "@emotion/react": "^11.11.1",
-    "@emotion/styled": "^11.11.0",
-    "@types/node": "^20.10.5",
-    "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.18",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
-    "react-dropzone": "^14.2.3",
-    "axios": "^1.6.2",
-    "typescript": "^4.9.5",
-    "web-vitals": "^3.5.0",
-    "@fontsource/noto-sans-kr": "^5.0.16",
-    "express": "^4.18.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.1.5",
