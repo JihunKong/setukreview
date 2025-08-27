@@ -195,13 +195,17 @@ export class SelectiveValidationService {
 
       // Process files in chunks for controlled concurrency
       for (const chunk of chunks) {
-        if (batch.status === 'cancelled') {
+        // Refresh batch status in case it was cancelled externally
+        const currentBatch = this.batchValidations.get(batchId);
+        if (!currentBatch || currentBatch.status === 'cancelled') {
           break;
         }
 
         // Process chunk in parallel
         const chunkPromises = chunk.map(async (file) => {
-          if (batch.status === 'cancelled') {
+          // Check if batch was cancelled
+          const currentBatch = this.batchValidations.get(batchId);
+          if (!currentBatch || currentBatch.status === 'cancelled') {
             return;
           }
 
@@ -230,9 +234,10 @@ export class SelectiveValidationService {
       }
 
       // Finalize batch
-      if (batch.status !== 'cancelled') {
-        batch.status = 'completed';
-        batch.progress = 100;
+      const finalBatch = this.batchValidations.get(batchId);
+      if (finalBatch && finalBatch.status !== 'cancelled') {
+        finalBatch.status = 'completed';
+        finalBatch.progress = 100;
       }
 
       batch.completedAt = new Date();
