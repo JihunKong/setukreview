@@ -14,10 +14,11 @@ cmds = [
 [phases.build]
 cmds = [
   "npm run build",
+  "chmod +x start-production.sh",
   "ls -la build/",
   "echo 'Build directory contents:' && ls -la build/"
 ]
 
-# Multiple attempts to override Railway's start command
+# Final override attempt with explicit script execution
 [start]
-cmd = "npm run railway-start"
+cmd = "./start-production.sh"
