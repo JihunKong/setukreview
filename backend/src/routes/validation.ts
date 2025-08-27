@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
-import { param, validationResult } from 'express-validator';
+import { param, body, validationResult } from 'express-validator';
 import { ValidationService } from '../services/ValidationService';
+import { SelectiveValidationService } from '../services/SelectiveValidationService';
 
 const router = express.Router();
 
@@ -142,6 +143,244 @@ router.get('/', (req: Request, res: Response) => {
       createdAt: result.createdAt,
       completedAt: result.completedAt,
     }))
+  });
+});
+
+// ===== BATCH VALIDATION ENDPOINTS =====
+
+const selectiveValidationService = SelectiveValidationService.getInstance();
+
+// Start batch validation
+router.post('/batch/:sessionId', [
+  param('sessionId').isUUID().withMessage('Invalid session ID'),
+  body('options').isObject().withMessage('Validation options required'),
+  body('options.validateAll').optional().isBoolean(),
+  body('options.selectedCategories').optional().isArray(),
+  body('options.selectedFileIds').optional().isArray(),
+  body('options.skipDuplicateDetection').optional().isBoolean(),
+  body('options.enableCrossValidation').optional().isBoolean(),
+  body('options.priority').optional().isIn(['speed', 'accuracy', 'balanced']),
+  body('options.maxConcurrency').optional().isInt({ min: 1, max: 10 })
+], async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  try {
+    const { sessionId } = req.params;
+    const { options } = req.body;
+
+    const batchId = await selectiveValidationService.startBatchValidation(sessionId, options);
+
+    res.json({
+      success: true,
+      batchId,
+      sessionId,
+      message: 'Batch validation started'
+    });
+
+  } catch (error) {
+    console.error('Batch validation start error:', error);
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start batch validation'
+    });
+  }
+});
+
+// Validate specific category
+router.post('/batch/:sessionId/category/:category', [
+  param('sessionId').isUUID().withMessage('Invalid session ID'),
+  param('category').isString().withMessage('Category is required'),
+  body('options').optional().isObject()
+], async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  try {
+    const { sessionId, category } = req.params;
+    const options = req.body.options || {};
+
+    const batchId = await selectiveValidationService.validateCategory(sessionId, category, options);
+
+    res.json({
+      success: true,
+      batchId,
+      sessionId,
+      category,
+      message: `Validation started for category: ${category}`
+    });
+
+  } catch (error) {
+    console.error('Category validation start error:', error);
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start category validation'
+    });
+  }
+});
+
+// Validate all files in session
+router.post('/batch/:sessionId/all', [
+  param('sessionId').isUUID().withMessage('Invalid session ID'),
+  body('options').optional().isObject()
+], async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  try {
+    const { sessionId } = req.params;
+    const options = req.body.options || {};
+
+    const batchId = await selectiveValidationService.validateAll(sessionId, options);
+
+    res.json({
+      success: true,
+      batchId,
+      sessionId,
+      message: 'Validation started for all files'
+    });
+
+  } catch (error) {
+    console.error('Validate all start error:', error);
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start validation for all files'
+    });
+  }
+});
+
+// Get batch validation status
+router.get('/batch/:batchId', [
+  param('batchId').isUUID().withMessage('Invalid batch ID')
+], (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  const { batchId } = req.params;
+  const batchResult = selectiveValidationService.getBatchResult(batchId);
+
+  if (!batchResult) {
+    return res.status(404).json({
+      error: 'Batch validation not found',
+      message: `No batch validation found with ID: ${batchId}`
+    });
+  }
+
+  // Convert Map to object for JSON serialization
+  const results: Record<string, any> = {};
+  batchResult.results.forEach((value, key) => {
+    results[key] = value;
+  });
+
+  res.json({
+    ...batchResult,
+    results
+  });
+});
+
+// Cancel batch validation
+router.delete('/batch/:batchId', [
+  param('batchId').isUUID().withMessage('Invalid batch ID')
+], (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  const { batchId } = req.params;
+  const success = selectiveValidationService.cancelBatchValidation(batchId);
+
+  if (!success) {
+    return res.status(404).json({
+      error: 'Cannot cancel batch validation',
+      message: 'Batch not found or already completed'
+    });
+  }
+
+  res.json({
+    success: true,
+    message: 'Batch validation cancelled'
+  });
+});
+
+// Get batch validation statistics by category
+router.get('/batch/:batchId/stats/category', [
+  param('batchId').isUUID().withMessage('Invalid batch ID')
+], (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  const { batchId } = req.params;
+  const stats = selectiveValidationService.getCategoryValidationStats(batchId);
+
+  res.json({
+    batchId,
+    categoryStats: stats
+  });
+});
+
+// Get all batch validations for a session
+router.get('/batch/session/:sessionId', [
+  param('sessionId').isUUID().withMessage('Invalid session ID')
+], (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  const { sessionId } = req.params;
+  const batches = selectiveValidationService.getSessionBatches(sessionId);
+
+  // Convert Maps to objects for JSON serialization
+  const serializedBatches = batches.map(batch => ({
+    ...batch,
+    results: Object.fromEntries(batch.results)
+  }));
+
+  res.json({
+    sessionId,
+    batches: serializedBatches
+  });
+});
+
+// Get selective validation service statistics
+router.get('/batch/stats/service', (req: Request, res: Response) => {
+  const stats = selectiveValidationService.getServiceStats();
+  
+  res.json({
+    success: true,
+    stats
   });
 });
 

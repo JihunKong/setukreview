@@ -4,6 +4,9 @@ import { InstitutionNameValidator } from '../validators/InstitutionNameValidator
 import { GrammarValidator } from '../validators/GrammarValidator';
 import { FormatValidator } from '../validators/FormatValidator';
 import { AIValidator } from '../validators/AIValidator';
+import { DuplicateDetectionValidator } from '../validators/DuplicateDetectionValidator';
+import { AttendanceDuplicateValidator } from '../validators/AttendanceDuplicateValidator';
+import { CrossStudentDuplicateDetector } from '../validators/CrossStudentDuplicateDetector';
 
 export class ValidationService {
   private static validationResults = new Map<string, ValidationResult>();
@@ -60,13 +63,20 @@ export class ValidationService {
 
     console.log(`👥 Validating NEIS data for ${neisData.students.length} students`);
 
-    // Initialize validators
+    // Initialize validators (including duplicate detection)
+    const duplicateDetector = new DuplicateDetectionValidator();
+    const attendanceValidator = new AttendanceDuplicateValidator();
+    const crossStudentDetector = new CrossStudentDuplicateDetector();
+    
     const validators = [
       new KoreanEnglishValidator(),
       new InstitutionNameValidator(),
       new GrammarValidator(),
       new FormatValidator(),
-      new AIValidator()
+      duplicateDetector,
+      attendanceValidator,
+      crossStudentDetector,
+      new AIValidator()  // AI validation last for context-aware checking
     ];
 
     let checkedCells = 0;
@@ -112,6 +122,9 @@ export class ValidationService {
               row: actualRow + 1,
               column: this.getColumnLetter(colIndex),
               cell: cellRef,
+              // Duplicate detection context
+              studentName: student.studentInfo.name || '미상',
+              section: sectionName,
               adjacentCells: this.getAdjacentCellsFromArray(row, rowIndex, colIndex),
               neisContext: {
                 studentInfo: student.studentInfo,

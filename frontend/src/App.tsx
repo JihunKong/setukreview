@@ -1,19 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Container,
-  Typography,
-  Box,
-  Paper,
   ThemeProvider,
   createTheme,
   CssBaseline,
   Alert,
   Snackbar,
+  Box,
+  Typography,
+  Paper,
+  Card,
+  CardContent,
 } from '@mui/material';
-import { FileUpload } from './components/FileUpload';
-import { ValidationProgress } from './components/ValidationProgress';
+import { DashboardLayout } from './components/DashboardLayout';
+import { MultiFileUpload, UploadedFile } from './components/MultiFileUpload';
 import { ValidationResults } from './components/ValidationResults';
+import { WaitingEntertainment } from './components/WaitingEntertainment';
+import { CategorySummary } from './components/CategorySidebar';
 import { ValidationResult } from './types/validation';
+import { fileUploadApi, validationApi } from './services/api';
 
 const theme = createTheme({
   palette: {
@@ -38,111 +42,375 @@ const theme = createTheme({
   },
 });
 
+interface BatchValidationState {
+  batchId: string | null;
+  sessionId: string | null;
+  status: 'idle' | 'uploading' | 'validating' | 'completed' | 'failed';
+  progress: number;
+  results: Map<string, ValidationResult>;
+}
+
 function App() {
-  const [validationId, setValidationId] = useState<string | null>(null);
-  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  // Session and file management
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [categories, setCategories] = useState<CategorySummary>({});
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  
+  // Validation state
+  const [batchValidation, setBatchValidation] = useState<BatchValidationState>({
+    batchId: null,
+    sessionId: null,
+    status: 'idle',
+    progress: 0,
+    results: new Map(),
+  });
+
+  // UI state
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleUploadSuccess = (newValidationId: string) => {
-    setValidationId(newValidationId);
-    setValidationResult(null);
+  // Update categories when files change
+  useEffect(() => {
+    if (uploadedFiles.length > 0) {
+      const newCategories: CategorySummary = {};
+      
+      uploadedFiles.forEach(file => {
+        if (!newCategories[file.category]) {
+          newCategories[file.category] = {
+            count: 0,
+            files: [],
+            avgConfidence: 0,
+            status: 'pending'
+          };
+        }
+        
+        newCategories[file.category].count++;
+        newCategories[file.category].files.push(file);
+      });
+
+      // Calculate averages and status for each category
+      Object.keys(newCategories).forEach(categoryKey => {
+        const category = newCategories[categoryKey];
+        category.avgConfidence = category.files.reduce((sum, f) => sum + f.confidence, 0) / category.files.length;
+        
+        const statuses = Array.from(new Set(category.files.map(f => f.status)));
+        if (statuses.length === 1) {
+          category.status = statuses[0] as any;
+        } else {
+          category.status = 'mixed';
+        }
+      });
+
+      setCategories(newCategories);
+    }
+  }, [uploadedFiles]);
+
+  // Handle session creation and file uploads
+  const handleSessionCreated = (newSessionId: string, files: UploadedFile[]) => {
+    setSessionId(newSessionId);
+    setUploadedFiles(files);
     setError(null);
+    console.log(`Session created: ${newSessionId} with ${files.length} files`);
   };
 
-  const handleValidationUpdate = (result: ValidationResult) => {
-    setValidationResult(result);
+  // Category selection handlers
+  const handleCategorySelect = (category: string) => {
+    setSelectedCategories(prev => 
+      prev.includes(category) 
+        ? prev.filter(c => c !== category)
+        : [...prev, category]
+    );
   };
 
-  const handleValidationComplete = (result: ValidationResult) => {
-    setValidationResult(result);
+  const handleSelectAll = () => {
+    setSelectedCategories(Object.keys(categories));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedCategories([]);
+  };
+
+  // Validation handlers
+  const handleValidateSelected = async () => {
+    if (!sessionId || selectedCategories.length === 0) return;
+    
+    setIsLoading(true);
+    setBatchValidation(prev => ({ ...prev, status: 'validating' }));
+
+    try {
+      const options = {
+        validateAll: false,
+        selectedCategories,
+        priority: 'balanced',
+        maxConcurrency: 3,
+      };
+
+      const result = await validationApi.startBatchValidation(sessionId, options);
+      setBatchValidation({
+        batchId: result.batchId,
+        sessionId: result.sessionId,
+        status: 'validating',
+        progress: 0,
+        results: new Map(),
+      });
+
+      // Start polling for results
+      pollBatchValidation(result.batchId);
+      
+    } catch (error) {
+      console.error('Validation failed:', error);
+      setError(error instanceof Error ? error.message : '검증 시작에 실패했습니다.');
+      setBatchValidation(prev => ({ ...prev, status: 'failed' }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleValidateCategory = async (category: string) => {
+    if (!sessionId) return;
+    
+    setIsLoading(true);
+    setBatchValidation(prev => ({ ...prev, status: 'validating' }));
+
+    try {
+      const result = await validationApi.validateCategory(sessionId, category);
+      setBatchValidation({
+        batchId: result.batchId,
+        sessionId: result.sessionId,
+        status: 'validating',
+        progress: 0,
+        results: new Map(),
+      });
+
+      pollBatchValidation(result.batchId);
+      
+    } catch (error) {
+      console.error('Category validation failed:', error);
+      setError(error instanceof Error ? error.message : '카테고리 검증에 실패했습니다.');
+      setBatchValidation(prev => ({ ...prev, status: 'failed' }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleValidateAll = async () => {
+    if (!sessionId) return;
+    
+    setIsLoading(true);
+    setBatchValidation(prev => ({ ...prev, status: 'validating' }));
+
+    try {
+      const result = await validationApi.validateAll(sessionId);
+      setBatchValidation({
+        batchId: result.batchId,
+        sessionId: result.sessionId,
+        status: 'validating',
+        progress: 0,
+        results: new Map(),
+      });
+
+      pollBatchValidation(result.batchId);
+      
+    } catch (error) {
+      console.error('Validation failed:', error);
+      setError(error instanceof Error ? error.message : '전체 검증에 실패했습니다.');
+      setBatchValidation(prev => ({ ...prev, status: 'failed' }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Poll batch validation results
+  const pollBatchValidation = async (batchId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const result = await validationApi.getBatchValidation(batchId);
+        
+        setBatchValidation(prev => ({
+          ...prev,
+          status: result.status === 'completed' ? 'completed' : prev.status,
+          progress: result.progress,
+          results: new Map(Object.entries(result.results)),
+        }));
+
+        // Update file statuses
+        setUploadedFiles(prev => prev.map(file => {
+          const validationResult = result.results[file.id];
+          return validationResult ? {
+            ...file,
+            status: validationResult.status,
+            validationId: validationResult.id,
+          } : file;
+        }));
+
+        if (result.status === 'completed' || result.status === 'failed' || result.status === 'cancelled') {
+          clearInterval(pollInterval);
+        }
+        
+      } catch (error) {
+        console.error('Poll error:', error);
+        clearInterval(pollInterval);
+      }
+    }, 2000); // Poll every 2 seconds
+
+    // Cleanup after 10 minutes
+    setTimeout(() => clearInterval(pollInterval), 10 * 60 * 1000);
+  };
+
+  const handleRefresh = async () => {
+    if (!sessionId) return;
+    
+    try {
+      const sessionData = await fileUploadApi.getSession(sessionId);
+      if (sessionData.success) {
+        const files: UploadedFile[] = sessionData.files.map((file: any) => ({
+          id: file.id,
+          fileName: file.fileName,
+          category: file.category,
+          confidence: file.confidence,
+          uploadedAt: new Date(file.uploadedAt),
+          status: file.status,
+          fileSize: file.fileSize,
+          file: new File([], file.fileName), // Dummy file object
+          validationId: file.validationId,
+          metadata: file.metadata,
+        }));
+        setUploadedFiles(files);
+      }
+    } catch (error) {
+      console.error('Refresh failed:', error);
+      setError('데이터 새로고침에 실패했습니다.');
+    }
+  };
+
+  const handleStartNew = () => {
+    setSessionId(null);
+    setUploadedFiles([]);
+    setCategories({});
+    setSelectedCategories([]);
+    setBatchValidation({
+      batchId: null,
+      sessionId: null,
+      status: 'idle',
+      progress: 0,
+      results: new Map(),
+    });
+    setError(null);
   };
 
   const handleError = (errorMessage: string) => {
     setError(errorMessage);
   };
 
-  const handleStartNew = () => {
-    setValidationId(null);
-    setValidationResult(null);
+  const handleCloseError = () => {
     setError(null);
   };
 
-  const handleCloseError = () => {
-    setError(null);
+  // Render main content based on current state
+  const renderMainContent = () => {
+    if (!sessionId) {
+      return (
+        <Box sx={{ maxWidth: 800, mx: 'auto', mt: 4 }}>
+          <Paper elevation={3} sx={{ p: 4, mb: 4, textAlign: 'center' }}>
+            <Typography variant="h5" gutterBottom>
+              🚀 시작하기
+            </Typography>
+            <Typography variant="body1" color="text.secondary" paragraph>
+              여러 Excel 파일을 한 번에 업로드하고, 자동으로 분류된 카테고리별로 검증할 수 있습니다.
+            </Typography>
+          </Paper>
+          
+          <MultiFileUpload
+            onSessionCreated={handleSessionCreated}
+            onError={handleError}
+          />
+        </Box>
+      );
+    }
+
+    if (batchValidation.status === 'validating') {
+      // Calculate estimated time remaining based on progress
+      const completedFiles = uploadedFiles.filter(f => f.status === 'completed').length;
+      const estimatedTimeRemaining = batchValidation.progress > 0 
+        ? Math.round(((100 - batchValidation.progress) / batchValidation.progress) * 60) // Rough estimate in seconds
+        : null;
+
+      return (
+        <WaitingEntertainment
+          progress={batchValidation.progress}
+          estimatedTimeRemaining={estimatedTimeRemaining || undefined}
+          currentTask="파일 검증 중..."
+          totalFiles={uploadedFiles.length}
+          completedFiles={completedFiles}
+        />
+      );
+    }
+
+    if (batchValidation.status === 'completed' && batchValidation.results.size > 0) {
+      const firstResult = Array.from(batchValidation.results.values())[0];
+      return (
+        <ValidationResults
+          validationResult={firstResult}
+          onStartNew={handleStartNew}
+          onError={handleError}
+        />
+      );
+    }
+
+    return (
+      <Box sx={{ maxWidth: 800, mx: 'auto', mt: 4 }}>
+        <Card>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <Typography variant="h6" gutterBottom>
+              📋 파일 업로드 완료
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              {uploadedFiles.length}개 파일이 업로드되었습니다.<br />
+              사이드바에서 카테고리를 선택하여 검증을 시작하세요.
+            </Typography>
+          </CardContent>
+        </Card>
+      </Box>
+    );
   };
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ minHeight: '100vh', backgroundColor: 'background.default', py: 4 }}>
-        <Container maxWidth="lg">
-          <Paper elevation={3} sx={{ p: 4, mb: 4 }}>
-            <Typography variant="h4" component="h1" gutterBottom align="center" color="primary">
-              📚 학교생활기록부 점검 도우미
-            </Typography>
-            <Typography variant="h6" component="h2" gutterBottom align="center" color="text.secondary">
-              나이스(NEIS) 엑셀 파일을 업로드하여 자동 점검받으세요
-            </Typography>
-            
-            <Box sx={{ mt: 3 }}>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                • 한글/영문 입력 규칙 검증
-                • 기관명 입력 규칙 검증  
-                • 문법 및 형식 검사
-                • AI 기반 내용 검증
-              </Typography>
-            </Box>
-          </Paper>
+      
+      {sessionId && uploadedFiles.length > 0 ? (
+        <DashboardLayout
+          categories={categories}
+          selectedCategories={selectedCategories}
+          onCategorySelect={handleCategorySelect}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={handleDeselectAll}
+          onValidateSelected={handleValidateSelected}
+          onValidateCategory={handleValidateCategory}
+          onValidateAll={handleValidateAll}
+          isValidating={batchValidation.status === 'validating' || isLoading}
+          totalFiles={uploadedFiles.length}
+          onRefresh={handleRefresh}
+        >
+          {renderMainContent()}
+        </DashboardLayout>
+      ) : (
+        <Box sx={{ minHeight: '100vh', backgroundColor: 'background.default' }}>
+          {renderMainContent()}
+        </Box>
+      )}
 
-          {!validationId && (
-            <FileUpload
-              onUploadSuccess={handleUploadSuccess}
-              onError={handleError}
-            />
-          )}
-
-          {validationId && !validationResult?.completedAt && (
-            <ValidationProgress
-              validationId={validationId}
-              onValidationUpdate={handleValidationUpdate}
-              onValidationComplete={handleValidationComplete}
-              onError={handleError}
-            />
-          )}
-
-          {validationResult?.status === 'completed' && (
-            <ValidationResults
-              validationResult={validationResult}
-              onStartNew={handleStartNew}
-              onError={handleError}
-            />
-          )}
-
-          {validationResult?.status === 'failed' && (
-            <Paper elevation={2} sx={{ p: 3, mt: 3 }}>
-              <Alert severity="error" sx={{ mb: 2 }}>
-                검증 중 오류가 발생했습니다.
-              </Alert>
-              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <button onClick={handleStartNew}>
-                  새로 시작하기
-                </button>
-              </Box>
-            </Paper>
-          )}
-
-          <Snackbar
-            open={!!error}
-            autoHideDuration={6000}
-            onClose={handleCloseError}
-            anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-          >
-            <Alert onClose={handleCloseError} severity="error" sx={{ width: '100%' }}>
-              {error}
-            </Alert>
-          </Snackbar>
-        </Container>
-      </Box>
+      <Snackbar
+        open={!!error}
+        autoHideDuration={8000}
+        onClose={handleCloseError}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseError} severity="error" sx={{ width: '100%' }}>
+          {error}
+        </Alert>
+      </Snackbar>
     </ThemeProvider>
   );
 }

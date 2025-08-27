@@ -53,6 +53,76 @@ export const fileUploadApi = {
     const response = await api.get('/upload/status');
     return response.data;
   },
+
+  // === Multi-file Upload APIs ===
+  createSession: async (userId?: string) => {
+    const response = await api.post('/upload/session', { userId });
+    return response.data;
+  },
+
+  uploadMultipleFiles: async (sessionId: string, files: File[]) => {
+    const formData = new FormData();
+    files.forEach(file => formData.append('files', file));
+
+    const response = await api.post(`/upload/multiple/${sessionId}`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 300000, // 5 minutes for multiple file uploads
+    });
+
+    return response.data;
+  },
+
+  addFileToSession: async (sessionId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post(`/upload/session/${sessionId}/file`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    return response.data;
+  },
+
+  getSession: async (sessionId: string) => {
+    const response = await api.get(`/upload/session/${sessionId}`);
+    return response.data;
+  },
+
+  getFilesByCategory: async (sessionId: string, category: string) => {
+    const response = await api.get(`/upload/session/${sessionId}/category/${category}`);
+    return response.data;
+  },
+
+  updateFileCategory: async (sessionId: string, fileId: string, category: string) => {
+    const response = await api.put(`/upload/session/${sessionId}/file/${fileId}/category`, {
+      category,
+    });
+    return response.data;
+  },
+
+  removeFile: async (sessionId: string, fileId: string) => {
+    const response = await api.delete(`/upload/session/${sessionId}/file/${fileId}`);
+    return response.data;
+  },
+
+  clearSession: async (sessionId: string) => {
+    const response = await api.delete(`/upload/session/${sessionId}/files`);
+    return response.data;
+  },
+
+  deleteSession: async (sessionId: string) => {
+    const response = await api.delete(`/upload/session/${sessionId}`);
+    return response.data;
+  },
+
+  getSystemStats: async () => {
+    const response = await api.get('/upload/system/stats');
+    return response.data;
+  },
 };
 
 export const validationApi = {
@@ -73,6 +143,53 @@ export const validationApi = {
   getRecentValidations: async () => {
     const response = await api.get('/validation');
     return response.data.validations;
+  },
+
+  // === Batch Validation APIs ===
+  startBatchValidation: async (sessionId: string, options: any) => {
+    const response = await api.post(`/validation/batch/${sessionId}`, { options }, {
+      timeout: 300000, // 5 minutes for batch validation
+    });
+    return response.data;
+  },
+
+  validateCategory: async (sessionId: string, category: string, options?: any) => {
+    const response = await api.post(`/validation/batch/${sessionId}/category/${category}`, {
+      options: options || {},
+    });
+    return response.data;
+  },
+
+  validateAll: async (sessionId: string, options?: any) => {
+    const response = await api.post(`/validation/batch/${sessionId}/all`, {
+      options: options || {},
+    });
+    return response.data;
+  },
+
+  getBatchValidation: async (batchId: string) => {
+    const response = await api.get(`/validation/batch/${batchId}`);
+    return response.data;
+  },
+
+  cancelBatchValidation: async (batchId: string) => {
+    const response = await api.delete(`/validation/batch/${batchId}`);
+    return response.data;
+  },
+
+  getBatchCategoryStats: async (batchId: string) => {
+    const response = await api.get(`/validation/batch/${batchId}/stats/category`);
+    return response.data;
+  },
+
+  getSessionBatches: async (sessionId: string) => {
+    const response = await api.get(`/validation/batch/session/${sessionId}`);
+    return response.data;
+  },
+
+  getServiceStats: async () => {
+    const response = await api.get('/validation/batch/stats/service');
+    return response.data;
   },
 };
 

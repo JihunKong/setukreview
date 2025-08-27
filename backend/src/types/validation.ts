@@ -1,6 +1,6 @@
 export interface ValidationError {
   id: string;
-  type: 'korean_english' | 'institution_name' | 'grammar' | 'format' | 'ai_validation';
+  type: 'korean_english' | 'institution_name' | 'grammar' | 'format' | 'ai_validation' | 'duplicate_detection' | 'attendance_duplicate';
   severity: 'error' | 'warning' | 'info';
   message: string;
   location: {
@@ -13,6 +13,15 @@ export interface ValidationError {
   suggestion?: string;
   rule: string;
   confidence?: number;
+  // Duplicate-specific fields
+  duplicateWith?: {
+    location: string;
+    studentName?: string;
+    section?: string;
+    similarity: number;
+    matchedText: string;
+    matchedWords?: string[];
+  };
 }
 
 export interface ValidationResult {
@@ -105,6 +114,9 @@ export interface ValidationContext {
   row: number;
   column: string;
   cell: string;
+  // Duplicate detection context
+  studentName?: string;
+  section?: string;
   adjacentCells?: {
     left?: string;
     right?: string;
