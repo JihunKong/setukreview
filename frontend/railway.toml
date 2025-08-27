@@ -1,11 +1,2 @@
-[build]
-builder = "nixpacks"
-buildCommand = "npm run build"
-
 [deploy]
 startCommand = "npm start"
-healthcheckPath = "/"
-healthcheckTimeout = 300
-
-[env]
-NODE_ENV = "production"
