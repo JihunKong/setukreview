@@ -1,14 +1,11 @@
 [providers]
 node = "18"
 
-[phases.setup]
-cmds = ["cd frontend"]
-
 [phases.build]
-cmds = ["cd frontend && npm ci", "cd frontend && npm run build"]
+cmds = ["npm ci", "npm run build"]
 
 [phases.start]
-cmd = "cd frontend && npm start"
+cmd = "npm start"
 
 [variables]
 NODE_ENV = "production"
