@@ -1,12 +1,23 @@
+# Force explicit Nixpacks configuration for Railway
+[variables]
+NODE_ENV = "production"
+
 [phases.setup]
 nixPkgs = ["nodejs-18_x"]
 
-[phases.install]
-cmds = ["npm ci"]
+[phases.install] 
+cmds = [
+  "npm ci --only=production",
+  "npm ci --only=dev"
+]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = [
+  "npm run build",
+  "ls -la build/",
+  "echo 'Build directory contents:' && ls -la build/"
+]
 
-# Force production server configuration
+# Explicitly override Railway's start command
 [start]
 cmd = "node server.js"
