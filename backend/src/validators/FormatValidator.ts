@@ -31,6 +31,9 @@ export class FormatValidator extends BaseValidator {
     
     // Check for bracket/parentheses consistency
     errors.push(...this.checkBracketConsistency(text));
+    
+    // Check for punctuation repetition
+    errors.push(...this.checkPunctuationRepetition(text));
 
     return errors;
   }
@@ -207,5 +210,78 @@ export class FormatValidator extends BaseValidator {
     };
 
     return suggestions[char] || '허용된 문자로 대체';
+  }
+
+  private checkPunctuationRepetition(text: string): ValidationError[] {
+    const errors: ValidationError[] = [];
+    
+    // Define punctuation patterns to check for repetition
+    const punctuationPatterns = [
+      { pattern: /\.{2,}/g, name: '마침표', char: '.' },
+      { pattern: /,{2,}/g, name: '쉼표', char: ',' },
+      { pattern: /!{2,}/g, name: '느낌표', char: '!' },
+      { pattern: /\?{2,}/g, name: '물음표', char: '?' },
+      { pattern: /;{2,}/g, name: '세미콜론', char: ';' },
+      { pattern: /:{2,}/g, name: '콜론', char: ':' },
+      { pattern: /-{3,}/g, name: '하이픈', char: '-' }, // Allow double hyphens (--) but flag triple or more
+    ];
+
+    for (const punctPattern of punctuationPatterns) {
+      const matches = text.match(punctPattern.pattern);
+      if (matches) {
+        for (const match of matches) {
+          const repetitionCount = match.length;
+          const suggestion = this.getPunctuationSuggestion(punctPattern.char, repetitionCount);
+          
+          const error = this.createError(
+            `${punctPattern.name} 반복 사용: "${match}" (${repetitionCount}개)`,
+            'punctuation-repetition',
+            'warning',
+            text,
+            suggestion
+          );
+          errors.push(error);
+        }
+      }
+    }
+
+    // Check for mixed punctuation repetition (e.g., ".,", "!?", etc.)
+    const mixedPunctuationPattern = /([.!?,:;])\1*([.!?,:;])\2*/g;
+    const mixedMatches = text.match(mixedPunctuationPattern);
+    if (mixedMatches) {
+      for (const match of mixedMatches) {
+        // Skip single punctuation marks
+        if (match.length === 1) continue;
+        
+        // Skip already caught repetitions (same character)
+        const uniqueChars = [...new Set(match)];
+        if (uniqueChars.length === 1) continue;
+
+        const error = this.createError(
+          `문장부호 혼합 사용: "${match}"`,
+          'mixed-punctuation',
+          'info',
+          text,
+          '적절한 문장부호 하나만 사용하세요'
+        );
+        errors.push(error);
+      }
+    }
+
+    return errors;
+  }
+
+  private getPunctuationSuggestion(char: string, count: number): string {
+    const suggestions: Record<string, string> = {
+      '.': count > 3 ? '줄임표(…) 사용 권장' : '마침표 하나만 사용',
+      ',': '쉼표 하나만 사용',
+      '!': '느낌표 하나만 사용',
+      '?': '물음표 하나만 사용',
+      ';': '세미콜론 하나만 사용',
+      ':': '콜론 하나만 사용',
+      '-': count > 2 ? '하이픈 1-2개만 사용' : '하이픈 하나만 사용',
+    };
+
+    return suggestions[char] || '문장부호 하나만 사용';
   }
 }

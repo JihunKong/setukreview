@@ -9,14 +9,15 @@ export class AIValidator extends BaseValidator {
   constructor() {
     super('ai_validation', 'AI Content Validator');
     
-    this.enabled = !!process.env.OPENAI_API_KEY;
+    this.enabled = !!process.env.UPSTAGE_API_KEY;
     
     if (this.enabled) {
       this.openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
+        apiKey: process.env.UPSTAGE_API_KEY,
+        baseURL: 'https://api.upstage.ai/v1/solar',
       });
     } else {
-      console.warn('⚠️ OpenAI API key not found. AI validation will be skipped.');
+      console.warn('⚠️ Upstage API key not found. AI validation will be skipped.');
     }
   }
 
@@ -55,7 +56,7 @@ export class AIValidator extends BaseValidator {
       const prompt = this.buildValidationPrompt(text, context);
       
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'solar-pro',
         messages: [
           {
             role: 'system',
@@ -98,7 +99,7 @@ export class AIValidator extends BaseValidator {
       return this.parseAIResponse(content, text);
 
     } catch (error) {
-      console.error('OpenAI API error:', error);
+      console.error('Upstage API error:', error);
       return [];
     }
   }

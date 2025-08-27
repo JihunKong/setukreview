@@ -40,13 +40,21 @@ export const ValidationProgress: React.FC<ValidationProgressProps> = ({
   const [result, setResult] = useState<ValidationResult | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const pollInterval = useRef<NodeJS.Timeout>();
+  const [retryCount, setRetryCount] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   useEffect(() => {
     const pollValidation = async () => {
+      if (isRetrying) return; // Skip if already retrying
+
       try {
         const validationResult = await validationApi.getValidation(validationId);
         setResult(validationResult);
         onValidationUpdate(validationResult);
+        
+        // Reset retry count on successful request
+        setRetryCount(0);
+        setIsRetrying(false);
 
         if (validationResult.status === 'completed') {
           onValidationComplete(validationResult);
@@ -59,26 +67,49 @@ export const ValidationProgress: React.FC<ValidationProgressProps> = ({
             clearInterval(pollInterval.current);
           }
         }
-      } catch (error) {
-        onError('검증 상태를 확인하는 중 오류가 발생했습니다.');
-        if (pollInterval.current) {
-          clearInterval(pollInterval.current);
+      } catch (error: any) {
+        // Handle rate limiting with exponential backoff
+        if (error?.response?.status === 429) {
+          const newRetryCount = retryCount + 1;
+          setRetryCount(newRetryCount);
+          setIsRetrying(true);
+
+          // Stop retrying after 3 consecutive failures
+          if (newRetryCount >= 3) {
+            onError('서버가 과부하 상태입니다. 잠시 후 다시 시도해주세요.');
+            if (pollInterval.current) {
+              clearInterval(pollInterval.current);
+            }
+            return;
+          }
+
+          // Exponential backoff: 5s, 10s, 20s
+          const backoffDelay = 5000 * Math.pow(2, newRetryCount - 1);
+          setTimeout(() => {
+            setIsRetrying(false);
+            pollValidation();
+          }, backoffDelay);
+        } else {
+          onError('검증 상태를 확인하는 중 오류가 발생했습니다.');
+          if (pollInterval.current) {
+            clearInterval(pollInterval.current);
+          }
         }
       }
     };
 
-    // Initial poll
-    pollValidation();
+    // Initial poll with slight delay to avoid immediate rate limiting
+    setTimeout(pollValidation, 1000);
 
-    // Set up polling interval
-    pollInterval.current = setInterval(pollValidation, 2000);
+    // Set up polling interval - increased from 2s to 5s to reduce rate limiting
+    pollInterval.current = setInterval(pollValidation, 5000);
 
     return () => {
       if (pollInterval.current) {
         clearInterval(pollInterval.current);
       }
     };
-  }, [validationId, onValidationUpdate, onValidationComplete, onError]);
+  }, [validationId, onValidationUpdate, onValidationComplete, onError, retryCount, isRetrying]);
 
   const handleCancel = async () => {
     setIsCancelling(true);
@@ -152,6 +183,7 @@ export const ValidationProgress: React.FC<ValidationProgressProps> = ({
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
           <Typography variant="caption" color="text.secondary">
             검사된 셀: {result.summary.checkedCells.toLocaleString()} / {result.summary.totalCells.toLocaleString()}
+            {isRetrying && ` (재연결 중... ${retryCount}/3)`}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             검증 ID: {validationId.slice(0, 8)}...

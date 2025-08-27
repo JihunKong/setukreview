@@ -23,20 +23,51 @@ app.use(helmet({
   },
 }));
 
-// Rate limiting
-const limiter = rateLimit({
+// Enhanced Rate limiting with CORS headers
+const createRateLimiter = (options: any) => {
+  return rateLimit({
+    ...options,
+    handler: (req: Request, res: Response) => {
+      // Ensure CORS headers are present on rate limit responses
+      const origin = req.headers.origin;
+      if (origin && (origin.includes('.up.railway.app') || origin.includes('localhost') || process.env.NODE_ENV !== 'production')) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+      }
+      
+      res.status(429).json({
+        error: 'Too Many Requests',
+        message: options.message || 'Too many requests from this IP, please try again later.',
+        retryAfter: Math.ceil(options.windowMs / 1000)
+      });
+    }
+  });
+};
+
+// General rate limiting - increased for validation polling
+const generalLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 500, // Increased from 100 to 500 requests per 15 minutes
   message: 'Too many requests from this IP, please try again later.',
 });
-app.use(limiter);
 
-// File upload rate limiting
-const uploadLimiter = rateLimit({
+// Validation endpoint specific rate limiting - higher limit for polling
+const validationLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // High limit for validation status polling
+  message: 'Too many validation requests, please slow down.',
+});
+
+// File upload rate limiting - keep conservative
+const uploadLimiter = createRateLimiter({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 10, // limit each IP to 10 uploads per 5 minutes
+  max: 20, // Slightly increased from 10 to 20 uploads per 5 minutes
   message: 'Too many file uploads, please try again later.',
 });
+
+app.use(generalLimiter);
 
 // Middleware
 app.use(compression());
@@ -96,9 +127,9 @@ app.use((req: Request, res: Response, next: any) => {
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// API Routes
+// API Routes with specific rate limiting
 app.use('/api/upload', uploadLimiter, uploadRouter);
-app.use('/api/validation', validationRouter);
+app.use('/api/validation', validationLimiter, validationRouter);
 app.use('/api/report', reportRouter);
 
 // Health check
