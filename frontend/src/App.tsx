@@ -18,6 +18,7 @@ import { WaitingEntertainment } from './components/WaitingEntertainment';
 import { CategorySummary } from './components/CategorySidebar';
 import { ValidationResult } from './types/validation';
 import { fileUploadApi, validationApi } from './services/api';
+import { APP_VERSION, BUILD_TIMESTAMP, CACHE_BUSTER } from './version';
 
 const theme = createTheme({
   palette: {
@@ -72,8 +73,11 @@ function App() {
 
   // Log app initialization
   useEffect(() => {
-    console.log('🚀 SetuKReview App v1.1.0 Starting...');
+    console.log(`🚀 SetuKReview App v${APP_VERSION} Starting...`);
     console.log('🔧 Environment Info:', {
+      version: APP_VERSION,
+      buildTimestamp: BUILD_TIMESTAMP,
+      cacheBuster: CACHE_BUSTER,
       NODE_ENV: process.env.NODE_ENV,
       timestamp: new Date().toISOString(),
       userAgent: navigator.userAgent,
