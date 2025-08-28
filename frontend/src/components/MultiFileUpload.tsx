@@ -129,42 +129,58 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
       console.log(`✅ Session created: ${sessionId}`);
       setUploadProgress(25);
 
-      // Upload files to the session
-      console.log(`📤 Uploading ${selectedFiles.length} files to session...`);
+      // Upload files to the session using sequential upload for reliability
+      console.log(`📤 Starting sequential upload of ${selectedFiles.length} files to session...`);
       console.log('Files to upload:', selectedFiles.map(f => ({ name: f.name, size: f.size })));
       
-      setCurrentlyUploading('파일 업로드 중...');
-      const uploadResult = await fileUploadApi.uploadMultipleFiles(sessionId, selectedFiles);
-      setUploadProgress(75);
+      // Sequential upload with progress tracking
+      const uploadResult = await fileUploadApi.uploadFilesSequentially(
+        sessionId, 
+        selectedFiles, 
+        (current: number, total: number, fileName: string) => {
+          const progressPercent = 25 + (current / total) * 50; // 25% to 75%
+          setUploadProgress(progressPercent);
+          setCurrentlyUploading(`파일 업로드 중... (${current}/${total}) ${fileName}`);
+        }
+      );
       
       console.log('📤 Upload result:', uploadResult);
       
       if (!uploadResult.success) {
-        throw new Error(`파일 업로드 실패: ${uploadResult.error || '알 수 없는 오류'}`);
+        throw new Error(`파일 업로드 실패: 알 수 없는 오류`);
       }
 
-      // Convert backend FileCategory to frontend UploadedFile format
-      const convertedFiles: UploadedFile[] = uploadResult.uploadedFiles.map((file: any) => ({
-        id: file.id,
-        fileName: file.fileName,
-        category: file.category,
-        confidence: file.confidence,
-        uploadedAt: new Date(file.uploadedAt),
-        status: file.status,
-        fileSize: file.fileSize,
-        file: selectedFiles.find(f => f.name === file.fileName)!, // Find original File object
-        validationId: file.validationId,
-        metadata: file.metadata,
-      }));
+      // Convert sequential upload results to frontend UploadedFile format
+      const convertedFiles: UploadedFile[] = uploadResult.results
+        .filter((result: any) => !result.error) // Only include successful uploads
+        .map((result: any) => ({
+          id: result.fileId,
+          fileName: result.fileName,
+          category: result.category,
+          confidence: result.confidence,
+          uploadedAt: new Date(result.uploadedAt),
+          status: result.status || 'pending',
+          fileSize: result.fileSize,
+          file: selectedFiles.find(f => f.name === result.fileName)!, // Find original File object
+          validationId: result.validationId,
+          metadata: result.metadata,
+        }));
+
+      // Log any failed uploads
+      const failedUploads = uploadResult.results.filter((result: any) => result.error);
+      if (failedUploads.length > 0) {
+        console.warn('❌ Some files failed to upload:', failedUploads);
+        // Note: Continue processing with successful uploads
+      }
 
       console.log(`✅ Successfully converted ${convertedFiles.length} files`);
       setUploadedFiles(convertedFiles);
       setUploadProgress(100);
 
-      // Report any errors
-      if (uploadResult.errors && uploadResult.errors.length > 0) {
-        console.warn('⚠️ Some files had errors:', uploadResult.errors);
-        onError(`일부 파일 업로드 실패:\n${uploadResult.errors.join('\n')}`);
+      // Report any errors from failed uploads
+      if (failedUploads.length > 0) {
+        console.warn('⚠️ Some files had errors:', failedUploads);
+        onError(`일부 파일 업로드 실패:\n${failedUploads.map((f: any) => f.fileName).join('\n')}`);
       }
 
       // Success callback
@@ -384,7 +400,7 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
             />
             
             <Typography variant="body2" color="text.secondary" align="center">
-              {uploadProgress}% 완료
+              {Math.round(uploadProgress)}% 완료
             </Typography>
 
             {uploadedFiles.length > 0 && (
