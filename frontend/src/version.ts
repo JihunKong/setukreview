@@ -1,6 +1,6 @@
 // Version file to force cache invalidation - UPDATED FOR CACHE BUST
-export const APP_VERSION = '1.1.2';
-export const BUILD_TIMESTAMP = '2025-08-27T09:05:00.000Z';
+export const APP_VERSION = '1.1.3';
+export const BUILD_TIMESTAMP = '2025-08-28T15:30:00.000Z';
 export const CACHE_BUSTER = Math.random() * 1000000;
 export const FORCE_REBUILD = true;
 

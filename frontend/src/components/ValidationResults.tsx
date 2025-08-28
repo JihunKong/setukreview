@@ -89,11 +89,13 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({
 
   const getTypeDisplayName = (type: string): string => {
     const typeNames: Record<string, string> = {
-      korean_english: '한글/영문',
-      institution_name: '기관명',
-      grammar: '문법',
-      format: '형식',
-      ai_validation: 'AI 검증'
+      korean_english: '한글/영문 규칙',
+      institution_name: '기관명 규칙',
+      grammar: '문법 검사',
+      format: '형식 검사',
+      ai_validation: 'AI 검증',
+      personal_info: '인적사항',
+      attendance: '출결상황'
     };
     return typeNames[type] || type;
   };
@@ -198,6 +200,57 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({
           <strong>완료 시각:</strong> {validationResult.completedAt ? new Date(validationResult.completedAt).toLocaleString('ko-KR') : 'N/A'}
         </Typography>
       </Alert>
+
+      {/* Category Breakdown */}
+      <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          📋 검증 카테고리별 결과
+        </Typography>
+        <Grid container spacing={2}>
+          {(() => {
+            const allIssues = [...validationResult.errors, ...validationResult.warnings, ...validationResult.info];
+            const categoryStats = allIssues.reduce((acc, issue) => {
+              if (!acc[issue.type]) {
+                acc[issue.type] = { error: 0, warning: 0, info: 0 };
+              }
+              acc[issue.type][issue.severity]++;
+              return acc;
+            }, {} as Record<string, Record<string, number>>);
+
+            return Object.entries(categoryStats).map(([type, stats]) => (
+              <Grid item xs={12} md={6} lg={4} key={type}>
+                <Card variant="outlined">
+                  <CardContent>
+                    <Typography variant="subtitle2" gutterBottom>
+                      {getTypeDisplayName(type)}
+                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="body2" color="error">
+                          {stats.error || 0}
+                        </Typography>
+                        <Typography variant="caption">오류</Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="body2" color="warning.main">
+                          {stats.warning || 0}
+                        </Typography>
+                        <Typography variant="caption">경고</Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="body2" color="info.main">
+                          {stats.info || 0}
+                        </Typography>
+                        <Typography variant="caption">정보</Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ));
+          })()}
+        </Grid>
+      </Paper>
 
       {/* Download Buttons */}
       <Box sx={{ display: 'flex', gap: 1, mb: 3, flexWrap: 'wrap' }}>

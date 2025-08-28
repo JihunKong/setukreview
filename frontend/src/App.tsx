@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { DashboardLayout } from './components/DashboardLayout';
 import { MultiFileUpload, UploadedFile } from './components/MultiFileUpload';
-import { ValidationResults } from './components/ValidationResults';
+import BatchValidationResults from './components/BatchValidationResults';
 import { WaitingEntertainment } from './components/WaitingEntertainment';
 import { CategorySummary } from './components/CategorySidebar';
 import { ValidationResult } from './types/validation';
@@ -363,10 +363,10 @@ function App() {
     }
 
     if (batchValidation.status === 'completed' && batchValidation.results.size > 0) {
-      const firstResult = Array.from(batchValidation.results.values())[0];
       return (
-        <ValidationResults
-          validationResult={firstResult}
+        <BatchValidationResults
+          batchResults={batchValidation.results}
+          uploadedFiles={uploadedFiles}
           onStartNew={handleStartNew}
           onError={handleError}
         />

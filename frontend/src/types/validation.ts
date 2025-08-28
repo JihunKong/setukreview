@@ -1,6 +1,6 @@
 export interface ValidationError {
   id: string;
-  type: 'korean_english' | 'institution_name' | 'grammar' | 'format' | 'ai_validation';
+  type: 'korean_english' | 'institution_name' | 'grammar' | 'format' | 'ai_validation' | 'personal_info' | 'attendance';
   severity: 'error' | 'warning' | 'info';
   message: string;
   location: {
