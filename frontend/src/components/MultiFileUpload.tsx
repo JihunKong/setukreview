@@ -138,7 +138,7 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
         sessionId, 
         selectedFiles, 
         (current: number, total: number, fileName: string) => {
-          const progressPercent = 25 + (current / total) * 50; // 25% to 75%
+          const progressPercent = Math.round(25 + (current / total) * 50); // 25% to 75%
           setUploadProgress(progressPercent);
           setCurrentlyUploading(`파일 업로드 중... (${current}/${total}) ${fileName}`);
         }
@@ -152,19 +152,22 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
 
       // Convert sequential upload results to frontend UploadedFile format
       const convertedFiles: UploadedFile[] = uploadResult.results
-        .filter((result: any) => !result.error) // Only include successful uploads
-        .map((result: any) => ({
-          id: result.fileId,
-          fileName: result.fileName,
-          category: result.category,
-          confidence: result.confidence,
-          uploadedAt: new Date(result.uploadedAt),
-          status: result.status || 'pending',
-          fileSize: result.fileSize,
-          file: selectedFiles.find(f => f.name === result.fileName)!, // Find original File object
-          validationId: result.validationId,
-          metadata: result.metadata,
-        }));
+        .filter((result: any) => !result.error && result.success && result.file) // Only include successful uploads with file data
+        .map((result: any) => {
+          const fileData = result.file; // Extract file data from nested structure
+          return {
+            id: fileData.id, // Use 'id' from file data, not 'fileId'
+            fileName: fileData.fileName,
+            category: fileData.category,
+            confidence: fileData.confidence,
+            uploadedAt: new Date(fileData.uploadedAt),
+            status: fileData.status || 'pending',
+            fileSize: fileData.fileSize,
+            file: selectedFiles.find(f => f.name === fileData.fileName)!, // Find original File object
+            validationId: fileData.validationId,
+            metadata: fileData.metadata,
+          };
+        });
 
       // Log any failed uploads
       const failedUploads = uploadResult.results.filter((result: any) => result.error);
