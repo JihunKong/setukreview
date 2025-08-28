@@ -242,12 +242,34 @@ function App() {
       try {
         const result = await validationApi.getBatchValidation(batchId);
         
-        setBatchValidation(prev => ({
-          ...prev,
-          status: result.status === 'completed' ? 'completed' : prev.status,
+        console.log(`🔍 Poll result debug:`, {
+          batchId,
+          status: result.status,
           progress: result.progress,
-          results: new Map(Object.entries(result.results)),
-        }));
+          resultKeys: Object.keys(result.results || {}),
+          resultCount: Object.keys(result.results || {}).length,
+          fullResult: result
+        });
+        
+        const resultsMap = new Map(Object.entries(result.results || {}));
+        console.log(`📊 Results Map created with ${resultsMap.size} entries:`, Array.from(resultsMap.keys()));
+        
+        setBatchValidation(prev => {
+          const updated = {
+            ...prev,
+            status: result.status === 'completed' ? 'completed' : prev.status,
+            progress: result.progress,
+            results: resultsMap,
+          };
+          
+          console.log(`🔄 Updating batch validation state:`, {
+            prevResultsSize: prev.results.size,
+            newResultsSize: updated.results.size,
+            status: updated.status
+          });
+          
+          return updated;
+        });
 
         // Update file statuses
         setUploadedFiles(prev => prev.map(file => {
@@ -260,6 +282,7 @@ function App() {
         }));
 
         if (result.status === 'completed' || result.status === 'failed' || result.status === 'cancelled') {
+          console.log(`✅ Polling completed. Final results count: ${resultsMap.size}`);
           clearInterval(pollInterval);
         }
         
@@ -363,6 +386,13 @@ function App() {
     }
 
     if (batchValidation.status === 'completed' && batchValidation.results.size > 0) {
+      console.log(`🎯 Rendering BatchValidationResults with:`, {
+        status: batchValidation.status,
+        resultsSize: batchValidation.results.size,
+        resultKeys: Array.from(batchValidation.results.keys()),
+        uploadedFilesCount: uploadedFiles.length
+      });
+      
       return (
         <BatchValidationResults
           batchResults={batchValidation.results}
@@ -372,6 +402,15 @@ function App() {
         />
       );
     }
+
+    console.log(`⚠️ Rendering default upload complete state:`, {
+      batchValidationStatus: batchValidation.status,
+      resultsSize: batchValidation.results.size,
+      uploadedFilesLength: uploadedFiles.length,
+      condition1: batchValidation.status === 'completed',
+      condition2: batchValidation.results.size > 0,
+      bothConditions: batchValidation.status === 'completed' && batchValidation.results.size > 0
+    });
 
     return (
       <Box sx={{ maxWidth: 800, mx: 'auto', mt: 4 }}>

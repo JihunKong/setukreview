@@ -15,6 +15,19 @@ const BatchValidationResults: React.FC<BatchValidationResultsProps> = ({
   onStartNew,
   onError
 }) => {
+  console.log(`📋 BatchValidationResults component received:`, {
+    batchResultsSize: batchResults.size,
+    batchResultsKeys: Array.from(batchResults.keys()),
+    uploadedFilesCount: uploadedFiles.length,
+    uploadedFilesNames: uploadedFiles.map(f => f.fileName),
+    batchResultsEntries: Array.from(batchResults.entries()).map(([key, result]) => ({
+      key,
+      fileName: result.fileName,
+      status: result.status,
+      errorCount: result.errors?.length || 0
+    }))
+  });
+
   const [selectedFileId, setSelectedFileId] = useState<string | null>(() => {
     return batchResults.size > 0 ? Array.from(batchResults.keys())[0] : null;
   });
