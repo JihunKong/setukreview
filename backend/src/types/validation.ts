@@ -22,6 +22,14 @@ export interface ValidationError {
     matchedText: string;
     matchedWords?: string[];
   };
+  // Highlighting fields for error location visualization
+  highlightRange?: {
+    start: number;    // Character position in originalText where error starts
+    end: number;      // Character position in originalText where error ends
+  };
+  contextBefore?: string;   // Text context before the error (for better visualization)
+  contextAfter?: string;    // Text context after the error (for better visualization)
+  markedText?: string;      // HTML-formatted text with <mark> tags for highlighting
 }
 
 export interface ValidationResult {

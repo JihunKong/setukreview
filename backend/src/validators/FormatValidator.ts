@@ -53,7 +53,7 @@ export class FormatValidator extends BaseValidator {
         const error = this.createError(
           `허용되지 않은 특수문자 사용: ${charDescription}`,
           'prohibited-special-character',
-          'warning',
+          'info',
           text,
           suggestion
         );
@@ -146,7 +146,7 @@ export class FormatValidator extends BaseValidator {
         const error = this.createError(
           `${bracket.name}의 개수가 맞지 않습니다 (열림: ${openCount}, 닫힘: ${closeCount})`,
           'mismatched-brackets',
-          'warning',
+          'info',
           text,
           `${bracket.name} 쌍을 확인하세요`
         );
@@ -236,7 +236,7 @@ export class FormatValidator extends BaseValidator {
           const error = this.createError(
             `${punctPattern.name} 반복 사용: "${match}" (${repetitionCount}개)`,
             'punctuation-repetition',
-            'warning',
+            'info',
             text,
             suggestion
           );

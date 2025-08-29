@@ -22,9 +22,18 @@ export class DuplicateDetectionValidator extends BaseValidator {
   private textCorpus: Map<string, DuplicateMatch[]> = new Map();
   private readonly SIMILARITY_THRESHOLDS = {
     EXACT_DUPLICATE: 0.90,     // 90% 이상: 완전 중복 (error)
-    HIGH_SIMILARITY: 0.70,     // 70-89%: 높은 유사도 (warning)
-    PARTIAL_DUPLICATE: 0.50    // 50-69%: 부분 중복 (info)
+    HIGH_SIMILARITY: 0.80,     // 80-89%: 높은 유사도 (warning)
+    PARTIAL_DUPLICATE: 0.70    // 70-79%: 부분 중복 (info)
   };
+
+  // 교육 분야 표준 표현 화이트리스트 (중복 검사 제외)
+  private readonly EDUCATION_STANDARD_EXPRESSIONS = [
+    '성실한 자세', '적극적인 참여', '바른 인성', '창의적 사고',
+    '협력적 태도', '책임감 있는', '꾸준한 노력', '긍정적인 마음',
+    '리더십을 발휘', '배려하는 마음', '성장하는 모습', '발전하는 자세',
+    '노력하는 모습', '관심을 보임', '참여도가 높음', '이해도가 높음',
+    '잘 수행함', '성과를 보임', '향상됨', '발전함'
+  ];
 
   private readonly WEIGHTS = {
     JACCARD: 0.4,              // 40% - 단어 집합 기반 유사도
@@ -40,12 +49,17 @@ export class DuplicateDetectionValidator extends BaseValidator {
     const errors: ValidationError[] = [];
 
     // Skip validation for empty cells, numbers only, or very short text
-    if (!text || this.isOnlyNumbers(text) || this.isDateTime(text) || text.length < 20) {
+    if (!text || this.isOnlyNumbers(text) || this.isDateTime(text) || text.length < 30) {
       return errors;
     }
 
     // Korean text only
     if (!this.isKoreanText(text)) {
+      return errors;
+    }
+
+    // Skip validation for standard educational expressions
+    if (this.isStandardEducationExpression(text)) {
       return errors;
     }
 
@@ -358,5 +372,17 @@ export class DuplicateDetectionValidator extends BaseValidator {
       sections,
       avgTextsPerSection: Math.round(avgTextsPerSection * 100) / 100
     };
+  }
+
+  /**
+   * Check if text contains standard educational expressions that should not be flagged as duplicates
+   */
+  private isStandardEducationExpression(text: string): boolean {
+    const normalizedText = text.toLowerCase().trim();
+    
+    return this.EDUCATION_STANDARD_EXPRESSIONS.some(expression => 
+      normalizedText.includes(expression.toLowerCase()) && 
+      normalizedText.length < expression.length + 20 // Allow some context but avoid very long texts
+    );
   }
 }

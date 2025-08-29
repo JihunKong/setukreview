@@ -1,15 +1,24 @@
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load environment variables from .env file
+dotenv.config({ path: path.join(__dirname, '../.env') });
+
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-// import path from 'path'; // Removed for Railway deployment
 import { uploadRouter } from './routes/upload';
 import { validationRouter } from './routes/validation';
 import { reportRouter } from './routes/report';
+import { ValidationService } from './services/ValidationService';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || (process.env.NODE_ENV === 'production' ? '8080' : '3001'), 10);
+
+// Trust proxy - CRITICAL for nginx reverse proxy
+app.set('trust proxy', true);
 
 // Security middleware
 app.use(helmet({
@@ -189,6 +198,17 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📝 API documentation available at http://localhost:${PORT}/api/health`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Load existing validation results from storage
+  console.log(`🔄 Loading existing validation results...`);
+  ValidationService.loadAllFromFiles();
+  
+  // Log AI validation status
+  if (process.env.UPSTAGE_API_KEY) {
+    console.log(`🤖 AI validation enabled with Upstage API`);
+  } else {
+    console.log(`⚠️  AI validation disabled - UPSTAGE_API_KEY not found`);
+  }
 });
 
 export default app;

@@ -61,17 +61,34 @@ export class KoreanEnglishValidator extends BaseValidator {
 
     const normalizedText = this.normalizeWhitespace(text);
     
-    // Extract English words and phrases
-    const englishMatches = this.extractEnglishContent(normalizedText);
+    // Extract English words and phrases with position information
+    const englishMatches = this.extractEnglishContentWithPositions(normalizedText);
     
     for (const match of englishMatches) {
-      if (!this.isAllowedEnglishUsage(match, normalizedText)) {
-        const error = this.createError(
-          `허용되지 않은 영문 표현: "${match}"`,
+      if (!this.isAllowedEnglishUsage(match.text, normalizedText)) {
+        // Calculate context around the error
+        const contextLength = 20;
+        const contextStart = Math.max(0, match.start - contextLength);
+        const contextEnd = Math.min(normalizedText.length, match.end + contextLength);
+        
+        const contextBefore = match.start > contextLength ? 
+          '...' + normalizedText.substring(contextStart, match.start) :
+          normalizedText.substring(0, match.start);
+          
+        const contextAfter = match.end + contextLength < normalizedText.length ?
+          normalizedText.substring(match.end, contextEnd) + '...' :
+          normalizedText.substring(match.end);
+        
+        const error = this.createErrorWithHighlight(
+          `허용되지 않은 영문 표현: "${match.text}"`,
           'korean-english-rule',
           'warning',
           text,
-          this.suggestKoreanAlternative(match)
+          this.suggestKoreanAlternative(match.text),
+          0.8,
+          { start: match.start, end: match.end },
+          contextBefore,
+          contextAfter
         );
         errors.push(error);
       }
@@ -98,6 +115,47 @@ export class KoreanEnglishValidator extends BaseValidator {
     }
 
     return [...new Set(matches)]; // Remove duplicates
+  }
+
+  private extractEnglishContentWithPositions(text: string): Array<{text: string, start: number, end: number}> {
+    const matches: Array<{text: string, start: number, end: number}> = [];
+    const foundTexts = new Set<string>();
+    
+    // Find all English words and acronyms with positions
+    const englishWordRegex = /\b[A-Za-z]+(?:[&][A-Za-z]+)*\b/g;
+    let match;
+    
+    while ((match = englishWordRegex.exec(text)) !== null) {
+      const matchText = match[0];
+      if (!foundTexts.has(matchText)) {
+        matches.push({
+          text: matchText,
+          start: match.index,
+          end: match.index + matchText.length
+        });
+        foundTexts.add(matchText);
+      }
+    }
+
+    // Reset regex for phrases
+    englishWordRegex.lastIndex = 0;
+
+    // Find English phrases (2-3 consecutive English words) with positions
+    const englishPhraseRegex = /\b[A-Z][a-z]+\s[A-Z][a-z]+(?:\s[A-Z][a-z]+)?\b/g;
+    while ((match = englishPhraseRegex.exec(text)) !== null) {
+      const matchText = match[0];
+      if (!foundTexts.has(matchText)) {
+        matches.push({
+          text: matchText,
+          start: match.index,
+          end: match.index + matchText.length
+        });
+        foundTexts.add(matchText);
+      }
+    }
+
+    // Sort by position
+    return matches.sort((a, b) => a.start - b.start);
   }
 
   private isAllowedEnglishUsage(englishContent: string, fullText: string): boolean {

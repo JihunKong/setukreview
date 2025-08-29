@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { DashboardLayout } from './components/DashboardLayout';
 import { MultiFileUpload, UploadedFile } from './components/MultiFileUpload';
-import BatchValidationResults from './components/BatchValidationResults';
+import BatchValidationResults from './components/BatchValidationResults/index';
 import { WaitingEntertainment } from './components/WaitingEntertainment';
 import { CategorySummary } from './components/CategorySidebar';
 import { ValidationResult } from './types/validation';
@@ -123,10 +123,28 @@ function App() {
 
   // Handle session creation and file uploads
   const handleSessionCreated = (newSessionId: string, files: UploadedFile[]) => {
+    console.log('🚨 EMERGENCY DEBUG APP - handleSessionCreated called with:', {
+      newSessionId,
+      filesCount: files.length,
+      files: files.map(f => ({
+        id: f.id,
+        fileName: f.fileName,
+        category: f.category,
+        confidence: f.confidence,
+        status: f.status
+      }))
+    });
+    
+    console.log('🚨 EMERGENCY DEBUG APP - Setting session state...');
     setSessionId(newSessionId);
+    console.log('🚨 EMERGENCY DEBUG APP - Setting uploaded files state...');
     setUploadedFiles(files);
+    console.log('🚨 EMERGENCY DEBUG APP - Clearing error state...');
     setError(null);
-    console.log(`Session created: ${newSessionId} with ${files.length} files`);
+    console.log('🚨 EMERGENCY DEBUG APP - Session creation completed:', {
+      newSessionId,
+      filesCount: files.length
+    });
   };
 
   // Category selection handlers
@@ -154,24 +172,55 @@ function App() {
     setBatchValidation(prev => ({ ...prev, status: 'validating' }));
 
     try {
-      const options = {
-        validateAll: false,
-        selectedCategories,
-        priority: 'balanced',
-        maxConcurrency: 3,
-      };
-
-      const result = await validationApi.startBatchValidation(sessionId, options);
-      setBatchValidation({
-        batchId: result.batchId,
-        sessionId: result.sessionId,
-        status: 'validating',
-        progress: 0,
-        results: new Map(),
-      });
-
-      // Start polling for results
-      pollBatchValidation(result.batchId);
+      console.log(`🚀 Starting validation for selected categories: ${selectedCategories.join(', ')}`);
+      
+      // For now, validate all files since backend doesn't support category filtering
+      const result = await validationApi.validateSession(sessionId);
+      
+      console.log(`✅ Validation completed for session ${sessionId}:`, result);
+      
+      if (result.success && result.results) {
+        // Convert results array to Map, filtering by selected categories
+        const resultsMap = new Map<string, ValidationResult>();
+        const categoryFiles = new Set();
+        
+        // Get file IDs for selected categories
+        selectedCategories.forEach(category => {
+          categories[category]?.files.forEach(file => categoryFiles.add(file.id));
+        });
+        
+        result.results.forEach((validationResult: any) => {
+          if (validationResult && validationResult.id && categoryFiles.has(validationResult.id)) {
+            resultsMap.set(validationResult.id, validationResult as ValidationResult);
+          }
+        });
+        
+        console.log(`📊 Created filtered results map with ${resultsMap.size} entries for selected categories`);
+        
+        setBatchValidation({
+          batchId: sessionId, // Use sessionId as batchId
+          sessionId: result.sessionId,
+          status: 'completed',
+          progress: 100,
+          results: resultsMap,
+        });
+        
+        // Update file statuses only for selected categories
+        setUploadedFiles(prev => prev.map(file => {
+          if (categoryFiles.has(file.id)) {
+            const validationResult = resultsMap.get(file.id);
+            return validationResult ? {
+              ...file,
+              status: validationResult.status,
+              validationId: validationResult.id
+            } : file;
+          }
+          return file;
+        }));
+        
+      } else {
+        throw new Error(result.message || '검증 결과를 받지 못했습니다.');
+      }
       
     } catch (error) {
       console.error('Validation failed:', error);
@@ -189,16 +238,51 @@ function App() {
     setBatchValidation(prev => ({ ...prev, status: 'validating' }));
 
     try {
-      const result = await validationApi.validateCategory(sessionId, category);
-      setBatchValidation({
-        batchId: result.batchId,
-        sessionId: result.sessionId,
-        status: 'validating',
-        progress: 0,
-        results: new Map(),
-      });
-
-      pollBatchValidation(result.batchId);
+      console.log(`🚀 Starting validation for category: ${category}`);
+      
+      const result = await validationApi.validateSession(sessionId);
+      
+      console.log(`✅ Validation completed for session ${sessionId}:`, result);
+      
+      if (result.success && result.results) {
+        // Convert results array to Map, filtering by selected category
+        const resultsMap = new Map<string, ValidationResult>();
+        const categoryInfo = categories[category];
+        const categoryFiles = categoryInfo?.files || [];
+        const categoryFileIds = new Set(categoryFiles.map(file => file.id));
+        
+        result.results.forEach((validationResult: any) => {
+          if (validationResult && validationResult.id && categoryFileIds.has(validationResult.id)) {
+            resultsMap.set(validationResult.id, validationResult as ValidationResult);
+          }
+        });
+        
+        console.log(`📊 Created filtered results map with ${resultsMap.size} entries for category: ${category}`);
+        
+        setBatchValidation({
+          batchId: sessionId, // Use sessionId as batchId
+          sessionId: result.sessionId,
+          status: 'completed',
+          progress: 100,
+          results: resultsMap,
+        });
+        
+        // Update file statuses only for this category
+        setUploadedFiles(prev => prev.map(file => {
+          if (categoryFileIds.has(file.id)) {
+            const validationResult = resultsMap.get(file.id);
+            return validationResult ? {
+              ...file,
+              status: validationResult.status,
+              validationId: validationResult.id
+            } : file;
+          }
+          return file;
+        }));
+        
+      } else {
+        throw new Error(result.message || '검증 결과를 받지 못했습니다.');
+      }
       
     } catch (error) {
       console.error('Category validation failed:', error);
@@ -216,16 +300,44 @@ function App() {
     setBatchValidation(prev => ({ ...prev, status: 'validating' }));
 
     try {
-      const result = await validationApi.validateAll(sessionId);
-      setBatchValidation({
-        batchId: result.batchId,
-        sessionId: result.sessionId,
-        status: 'validating',
-        progress: 0,
-        results: new Map(),
-      });
-
-      pollBatchValidation(result.batchId);
+      console.log(`🚀 Starting validation for session: ${sessionId}`);
+      const result = await validationApi.validateSession(sessionId);
+      
+      console.log(`✅ Validation completed for session ${sessionId}:`, result);
+      
+      if (result.success && result.results) {
+        // Convert results array to Map
+        const resultsMap = new Map<string, ValidationResult>();
+        
+        result.results.forEach((validationResult: any) => {
+          if (validationResult && validationResult.id) {
+            resultsMap.set(validationResult.id, validationResult as ValidationResult);
+          }
+        });
+        
+        console.log(`📊 Created results map with ${resultsMap.size} entries`);
+        
+        setBatchValidation({
+          batchId: sessionId, // Use sessionId as batchId
+          sessionId: result.sessionId,
+          status: 'completed',
+          progress: 100,
+          results: resultsMap,
+        });
+        
+        // Update file statuses
+        setUploadedFiles(prev => prev.map(file => {
+          const validationResult = resultsMap.get(file.id);
+          return validationResult ? {
+            ...file,
+            status: validationResult.status,
+            validationId: validationResult.id
+          } : file;
+        }));
+        
+      } else {
+        throw new Error(result.message || '검증 결과를 받지 못했습니다.');
+      }
       
     } catch (error) {
       console.error('Validation failed:', error);
@@ -236,65 +348,7 @@ function App() {
     }
   };
 
-  // Poll batch validation results
-  const pollBatchValidation = async (batchId: string) => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const result = await validationApi.getBatchValidation(batchId);
-        
-        console.log(`🔍 Poll result debug:`, {
-          batchId,
-          status: result.status,
-          progress: result.progress,
-          resultKeys: Object.keys(result.results || {}),
-          resultCount: Object.keys(result.results || {}).length,
-          fullResult: result
-        });
-        
-        const resultsMap = new Map(Object.entries(result.results || {}));
-        console.log(`📊 Results Map created with ${resultsMap.size} entries:`, Array.from(resultsMap.keys()));
-        
-        setBatchValidation(prev => {
-          const updated = {
-            ...prev,
-            status: result.status === 'completed' ? 'completed' : prev.status,
-            progress: result.progress,
-            results: resultsMap,
-          };
-          
-          console.log(`🔄 Updating batch validation state:`, {
-            prevResultsSize: prev.results.size,
-            newResultsSize: updated.results.size,
-            status: updated.status
-          });
-          
-          return updated;
-        });
-
-        // Update file statuses
-        setUploadedFiles(prev => prev.map(file => {
-          const validationResult = result.results[file.id];
-          return validationResult ? {
-            ...file,
-            status: validationResult.status,
-            validationId: validationResult.id,
-          } : file;
-        }));
-
-        if (result.status === 'completed' || result.status === 'failed' || result.status === 'cancelled') {
-          console.log(`✅ Polling completed. Final results count: ${resultsMap.size}`);
-          clearInterval(pollInterval);
-        }
-        
-      } catch (error) {
-        console.error('Poll error:', error);
-        clearInterval(pollInterval);
-      }
-    }, 2000); // Poll every 2 seconds
-
-    // Cleanup after 10 minutes
-    setTimeout(() => clearInterval(pollInterval), 10 * 60 * 1000);
-  };
+  // Session validation returns results immediately - no polling needed
 
   const handleRefresh = async () => {
     if (!sessionId) return;
@@ -397,9 +451,36 @@ function App() {
         <BatchValidationResults
           batchResults={batchValidation.results}
           uploadedFiles={uploadedFiles}
+          sessionId={sessionId}
           onStartNew={handleStartNew}
           onError={handleError}
         />
+      );
+    }
+
+    // Additional debug condition for completed status with empty results
+    if (batchValidation.status === 'completed' && batchValidation.results.size === 0) {
+      console.warn(`⚠️ Batch validation completed but no results found:`, {
+        status: batchValidation.status,
+        resultsSize: batchValidation.results.size,
+        batchId: batchValidation.batchId,
+        sessionId: batchValidation.sessionId
+      });
+      
+      return (
+        <Box sx={{ maxWidth: 800, mx: 'auto', mt: 4 }}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center', py: 6 }}>
+              <Typography variant="h6" gutterBottom color="error">
+                ⚠️ 검증 완료되었지만 결과가 없습니다
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                검증은 완료되었지만 결과를 불러올 수 없습니다.<br />
+                새로고침하거나 다시 시도해주세요.
+              </Typography>
+            </CardContent>
+          </Card>
+        </Box>
       );
     }
 
@@ -465,6 +546,29 @@ function App() {
           {error}
         </Alert>
       </Snackbar>
+
+      {/* Copyright Footer */}
+      <Box
+        component="footer"
+        sx={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+          backdropFilter: 'blur(8px)',
+          borderTop: '1px solid',
+          borderColor: 'divider',
+          py: 1,
+          px: 2,
+          textAlign: 'center',
+          zIndex: 1000,
+        }}
+      >
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+          © 2025 완도고등학교 공지훈, 목포여자고등학교 강미나
+        </Typography>
+      </Box>
     </ThemeProvider>
   );
 }

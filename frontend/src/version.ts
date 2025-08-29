@@ -1,17 +1,23 @@
-// Version file to force cache invalidation - UPDATED FOR CACHE BUST
-export const APP_VERSION = '1.1.3';
-export const BUILD_TIMESTAMP = '2025-08-28T15:30:00.000Z';
-export const CACHE_BUSTER = Math.random() * 1000000;
+// 🔥 FINAL FORMDATA FIX - ULTRA DEBUGGING ENABLED
+export const APP_VERSION = '3.0.0-FORMDATA-ULTIMATE-FIX';
+export const BUILD_TIMESTAMP = '2025-08-29T08:45:00.000Z';
+export const CACHE_BUSTER = Date.now() + Math.random() * 999999999999;
 export const FORCE_REBUILD = true;
 
-// Additional cache busting data
+// 🚨 ULTIMATE FORMDATA FIX - COMPLETE INTERCEPTOR OVERHAUL
 export const BUILD_CONFIG = {
-  buildId: 'cache-bust-v2',
-  dependencies: ['uuid', 'axios', 'react'],
+  buildId: 'ULTIMATE-FORMDATA-FIX-v3',
+  dependencies: ['uuid', 'axios', 'react', 'formdata'],
   timestamp: Date.now(),
-  random: Math.floor(Math.random() * 999999),
+  random: Math.floor(Math.random() * 999999999999999),
+  emergencyMode: true,
+  debugLevel: 'ULTIMATE_DEBUG',
+  formDataFix: true,
+  interceptorOverhauled: true,
+  contentTypeDeletedForFormData: true,
+  ultramateDebuggingEnabled: true,
 };
 
-console.log(`📦 SetuKReview v${APP_VERSION} - Built at ${BUILD_TIMESTAMP}`);
-console.log(`🔥 Force rebuild: ${FORCE_REBUILD} - Cache buster: ${CACHE_BUSTER}`);
-console.log(`⚙️ Build config:`, BUILD_CONFIG);
+console.log(`🔥 SetuKReview v${APP_VERSION} - ULTIMATE FORMDATA FIX DEPLOYED!`);
+console.log(`⚡ Force rebuild: ${FORCE_REBUILD} - Cache buster: ${CACHE_BUSTER}`);
+console.log(`🛠️ Build config:`, BUILD_CONFIG);

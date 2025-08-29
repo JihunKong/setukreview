@@ -107,7 +107,18 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
 
-    console.log(`🚀 Starting multi-file upload with ${selectedFiles.length} files`);
+    console.log('🚨 EMERGENCY DEBUG - Starting multi-file upload');
+    console.log('🚨 EMERGENCY DEBUG - Selected files:', selectedFiles.map(f => ({
+      name: f.name, 
+      size: f.size, 
+      type: f.type
+    })));
+    console.log('🚨 EMERGENCY DEBUG - Environment:', {
+      NODE_ENV: process.env.NODE_ENV,
+      userAgent: navigator.userAgent,
+      timestamp: new Date().toISOString(),
+      location: window.location.href
+    });
 
     setIsUploading(true);
     setUploadProgress(0);
@@ -115,23 +126,48 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
 
     try {
       // First, create a session
-      console.log('📝 Creating upload session...');
+      console.log('🚨 EMERGENCY DEBUG - Starting session creation...');
       setCurrentlyUploading('세션 생성 중...');
+      
+      console.log('🚨 EMERGENCY DEBUG - Calling fileUploadApi.createSession with userId: "anonymous"');
       const sessionData = await fileUploadApi.createSession('anonymous');
       
-      console.log('📝 Session creation result:', sessionData);
+      console.log('🚨 EMERGENCY DEBUG - Session creation RAW RESPONSE:', {
+        data: sessionData,
+        type: typeof sessionData,
+        keys: Object.keys(sessionData || {}),
+        success: sessionData?.success,
+        sessionId: sessionData?.sessionId,
+        error: sessionData?.error
+      });
       
       if (!sessionData.success) {
-        throw new Error(`세션 생성 실패: ${sessionData.error || '알 수 없는 오류'}`);
+        console.error('🚨 EMERGENCY DEBUG - Session creation FAILED:', {
+          success: sessionData.success,
+          error: sessionData.error,
+          message: sessionData.message,
+          fullResponse: sessionData
+        });
+        throw new Error(`세션 생성 실패: ${sessionData.error || sessionData.message || '알 수 없는 오류'}`);
       }
 
       const sessionId = sessionData.sessionId;
-      console.log(`✅ Session created: ${sessionId}`);
+      console.log('🚨 EMERGENCY DEBUG - Session created successfully:', sessionId);
+      if (!sessionId) {
+        console.error('🚨 EMERGENCY DEBUG - Session ID is null/undefined!', sessionData);
+        throw new Error('세션 ID가 생성되지 않았습니다.');
+      }
       setUploadProgress(25);
 
       // Upload files to the session using sequential upload for reliability
-      console.log(`📤 Starting sequential upload of ${selectedFiles.length} files to session...`);
-      console.log('Files to upload:', selectedFiles.map(f => ({ name: f.name, size: f.size })));
+      console.log('🚨 EMERGENCY DEBUG - Starting sequential file upload');
+      console.log('🚨 EMERGENCY DEBUG - Files to upload:', selectedFiles.map(f => ({ name: f.name, size: f.size })));
+      
+      console.log('🚨 EMERGENCY DEBUG - Calling uploadFilesSequentially with:', {
+        sessionId,
+        fileCount: selectedFiles.length,
+        sessionIdType: typeof sessionId
+      });
       
       // Sequential upload with progress tracking
       const uploadResult = await fileUploadApi.uploadFilesSequentially(
@@ -139,23 +175,73 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
         selectedFiles, 
         (current: number, total: number, fileName: string) => {
           const progressPercent = Math.round(25 + (current / total) * 50); // 25% to 75%
+          console.log('🚨 EMERGENCY DEBUG - Upload progress callback:', {
+            current,
+            total,
+            fileName,
+            progressPercent
+          });
           setUploadProgress(progressPercent);
           setCurrentlyUploading(`파일 업로드 중... (${current}/${total}) ${fileName}`);
         }
       );
       
-      console.log('📤 Upload result:', uploadResult);
+      console.log('🚨 EMERGENCY DEBUG - Upload result RAW:', {
+        result: uploadResult,
+        type: typeof uploadResult,
+        keys: Object.keys(uploadResult || {}),
+        success: uploadResult?.success,
+        results: uploadResult?.results,
+        resultsType: typeof uploadResult?.results,
+        resultsLength: uploadResult?.results?.length
+      });
       
       if (!uploadResult.success) {
-        throw new Error(`파일 업로드 실패: 알 수 없는 오류`);
+        console.error('🚨 EMERGENCY DEBUG - Upload failed:', uploadResult);
+        throw new Error(`파일 업로드 실패: ${(uploadResult as any).error || (uploadResult as any).message || '알 수 없는 오류'}`);
       }
 
+      console.log('🚨 EMERGENCY DEBUG - Processing upload results...');
+      if (!uploadResult.results) {
+        console.error('🚨 EMERGENCY DEBUG - No results in upload response!', uploadResult);
+        throw new Error('업로드 결과가 비어있습니다.');
+      }
+
+      console.log('🚨 EMERGENCY DEBUG - Upload results details:', {
+        resultsArray: uploadResult.results,
+        resultsCount: uploadResult.results.length
+      });
+
       // Convert sequential upload results to frontend UploadedFile format
-      const convertedFiles: UploadedFile[] = uploadResult.results
-        .filter((result: any) => !result.error && result.success && result.file) // Only include successful uploads with file data
-        .map((result: any) => {
+      const successfulResults = uploadResult.results.filter((result: any) => {
+        const hasFile = !result.error && result.success && result.file;
+        console.log('🚨 EMERGENCY DEBUG - Filtering result:', {
+          result,
+          hasError: !!result.error,
+          success: result.success,
+          hasFile: !!result.file,
+          isValid: hasFile
+        });
+        return hasFile;
+      });
+
+      console.log('🚨 EMERGENCY DEBUG - Successful results:', {
+        count: successfulResults.length,
+        results: successfulResults
+      });
+
+      const convertedFiles: UploadedFile[] = successfulResults.map((result: any, index: number) => {
+          console.log('🚨 EMERGENCY DEBUG - Converting result', index, ':', result);
+          
           const fileData = result.file; // Extract file data from nested structure
-          return {
+          if (!fileData) {
+            console.error('🚨 EMERGENCY DEBUG - No file data in result!', result);
+            throw new Error('파일 데이터가 없습니다.');
+          }
+          
+          console.log('🚨 EMERGENCY DEBUG - File data:', fileData);
+          
+          const convertedFile = {
             id: fileData.id, // Use 'id' from file data, not 'fileId'
             fileName: fileData.fileName,
             category: fileData.category,
@@ -167,16 +253,23 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
             validationId: fileData.validationId,
             metadata: fileData.metadata,
           };
+          
+          console.log('🚨 EMERGENCY DEBUG - Converted file:', convertedFile);
+          return convertedFile;
         });
 
       // Log any failed uploads
       const failedUploads = uploadResult.results.filter((result: any) => result.error);
       if (failedUploads.length > 0) {
-        console.warn('❌ Some files failed to upload:', failedUploads);
+        console.warn('🚨 EMERGENCY DEBUG - Failed uploads:', failedUploads);
         // Note: Continue processing with successful uploads
       }
 
-      console.log(`✅ Successfully converted ${convertedFiles.length} files`);
+      console.log('🚨 EMERGENCY DEBUG - Final conversion results:', {
+        convertedFilesCount: convertedFiles.length,
+        convertedFiles: convertedFiles
+      });
+      
       setUploadedFiles(convertedFiles);
       setUploadProgress(100);
 
@@ -187,19 +280,35 @@ export const MultiFileUpload: React.FC<MultiFileUploadProps> = ({
       }
 
       // Success callback
-      console.log('🎉 Upload process completed successfully');
+      console.log('🚨 EMERGENCY DEBUG - About to call onSessionCreated with:', {
+        sessionId,
+        convertedFilesCount: convertedFiles.length,
+        convertedFiles: convertedFiles
+      });
+      
+      if (convertedFiles.length === 0) {
+        console.error('🚨 EMERGENCY DEBUG - CRITICAL: No converted files to report!');
+        throw new Error('변환된 파일이 없습니다. 업로드가 실패했을 수 있습니다.');
+      }
+      
+      console.log('🎉 EMERGENCY DEBUG - Upload process completed successfully, calling onSessionCreated...');
       onSessionCreated(sessionId, convertedFiles);
+      console.log('🚨 EMERGENCY DEBUG - onSessionCreated callback completed');
 
     } catch (error) {
-      console.error('❌ Multi-file upload failed:', {
+      console.error('🚨 EMERGENCY DEBUG - Multi-file upload FAILED:', {
         error: error,
         message: error instanceof Error ? error.message : '알 수 없는 오류',
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : 'Unknown',
+        cause: error instanceof Error ? (error as any).cause : undefined
       });
       
       if (error instanceof Error) {
+        console.error('🚨 EMERGENCY DEBUG - Calling onError with message:', error.message);
         onError(`업로드 실패: ${error.message}`);
       } else {
+        console.error('🚨 EMERGENCY DEBUG - Non-Error object caught:', error);
         onError('파일 업로드 중 예상치 못한 오류가 발생했습니다.');
       }
     } finally {

@@ -286,10 +286,30 @@ router.get('/batch/:batchId', [
     });
   }
 
-  // Convert Map to object for JSON serialization
+  // Convert Map to object for JSON serialization with validation
   const results: Record<string, any> = {};
+  let conversionErrors = 0;
+  
   batchResult.results.forEach((value, key) => {
-    results[key] = value;
+    try {
+      if (value && typeof value === 'object') {
+        results[key] = value;
+      } else {
+        console.warn(`⚠️ Invalid validation result for key ${key}:`, value);
+        conversionErrors++;
+      }
+    } catch (error) {
+      console.error(`❌ Error converting result for key ${key}:`, error);
+      conversionErrors++;
+    }
+  });
+
+  console.log(`📊 Batch ${batchId} serialization:`, {
+    totalResults: batchResult.results.size,
+    serializedResults: Object.keys(results).length,
+    conversionErrors,
+    resultKeys: Array.from(batchResult.results.keys()),
+    serializedKeys: Object.keys(results)
   });
 
   res.json({
@@ -382,6 +402,40 @@ router.get('/batch/stats/service', (req: Request, res: Response) => {
     success: true,
     stats
   });
+});
+
+// Direct session validation - validates ALL files and returns results immediately
+router.post('/session/:sessionId', [
+  param('sessionId').isUUID().withMessage('Invalid session ID')
+], async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  try {
+    const { sessionId } = req.params;
+    
+    // Validate all files in the session directly
+    const results = await selectiveValidationService.validateAllFilesSync(sessionId);
+    
+    res.json({
+      success: true,
+      sessionId,
+      results,
+      message: 'All files validated successfully'
+    });
+
+  } catch (error) {
+    console.error('Session validation error:', error);
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to validate session files'
+    });
+  }
 });
 
 export { router as validationRouter };

@@ -35,7 +35,7 @@ export class GrammarValidator extends BaseValidator {
     const errors: ValidationError[] = [];
     
     // Skip short text or text that's clearly not a sentence
-    if (normalizedText.length < 10) {
+    if (normalizedText.length < 20) { // Increased threshold to reduce noise
       return errors;
     }
 
@@ -44,18 +44,26 @@ export class GrammarValidator extends BaseValidator {
       return errors;
     }
 
+    // Skip if text looks like structured data or contains many numbers/dates
+    if (this.isStructuredData(normalizedText)) {
+      return errors;
+    }
+
     // Check if text ends with appropriate punctuation
     const endsWithPunctuation = /[.!?。]$/.test(normalizedText);
     
     if (!endsWithPunctuation && this.shouldEndWithPeriod(normalizedText)) {
-      const error = this.createError(
-        '문장의 끝에 마침표가 빠져있습니다',
-        'missing-period',
-        'warning',
-        originalText,
-        `${normalizedText}.`
-      );
-      errors.push(error);
+      // Only report for clearly narrative text
+      if (this.isNarrativeText(normalizedText)) {
+        const error = this.createError(
+          '문장의 끝에 마침표가 빠져있습니다',
+          'missing-period',
+          'info',
+          originalText,
+          `${normalizedText}.`
+        );
+        errors.push(error);
+      }
     }
 
     return errors;
@@ -64,19 +72,63 @@ export class GrammarValidator extends BaseValidator {
   private checkDoubleSpacing(normalizedText: string, originalText: string): ValidationError[] {
     const errors: ValidationError[] = [];
     
-    // Check for multiple consecutive spaces
-    const doubleSpacePattern = /\s{2,}/g;
-    const matches = normalizedText.match(doubleSpacePattern);
+    // Check for excessive consecutive spaces (5 or more, to be less strict)
+    const excessiveSpacePattern = /\s{5,}/g;
+    let match;
+    const matches = [];
     
-    if (matches) {
-      const error = this.createError(
-        '연속된 공백이 발견되었습니다',
-        'double-spacing',
-        'info',
-        originalText,
-        normalizedText.replace(/\s+/g, ' ')
-      );
-      errors.push(error);
+    // Find all matches with their positions
+    while ((match = excessiveSpacePattern.exec(normalizedText)) !== null) {
+      matches.push({
+        text: match[0],
+        start: match.index,
+        end: match.index + match[0].length,
+        length: match[0].length
+      });
+    }
+    
+    if (matches.length > 0) {
+      // Skip if it looks like intentional indentation or tabular formatting
+      if (this.isIntentionalSpacing(normalizedText)) {
+        return errors;
+      }
+      
+      // Only report if there are many instances or very long spaces
+      const spaceCount = matches.reduce((sum, match) => sum + match.length, 0);
+      const maxSpaces = Math.max(...matches.map(m => m.length));
+      
+      if (spaceCount > 10 || matches.some(match => match.length > 8)) {
+        // Create error for the first (or longest) excessive spacing occurrence
+        const targetMatch = matches.reduce((longest, current) => 
+          current.length > longest.length ? current : longest
+        );
+        
+        // Calculate context around the spacing error
+        const contextLength = 15;
+        const contextStart = Math.max(0, targetMatch.start - contextLength);
+        const contextEnd = Math.min(normalizedText.length, targetMatch.end + contextLength);
+        
+        const contextBefore = targetMatch.start > contextLength ? 
+          '...' + normalizedText.substring(contextStart, targetMatch.start) :
+          normalizedText.substring(0, targetMatch.start);
+          
+        const contextAfter = targetMatch.end + contextLength < normalizedText.length ?
+          normalizedText.substring(targetMatch.end, contextEnd) + '...' :
+          normalizedText.substring(targetMatch.end);
+        
+        const error = this.createErrorWithHighlight(
+          `과도한 연속 공백이 발견되었습니다 (${maxSpaces}개)`,
+          'excessive-spacing',
+          'info',
+          originalText,
+          normalizedText.replace(/\s{5,}/g, ' '),
+          0.9,
+          { start: targetMatch.start, end: targetMatch.end },
+          contextBefore,
+          contextAfter
+        );
+        errors.push(error);
+      }
     }
 
     return errors;
@@ -99,7 +151,7 @@ export class GrammarValidator extends BaseValidator {
         const error = this.createError(
           `조사 사용이 부적절합니다. "${wordBeforeParens}"에는 "${correctParticle}"이 적절합니다`,
           'particle-with-parentheses',
-          'warning',
+          'info',
           originalText,
           normalizedText.replace(match[0], `${wordBeforeParens}(${match[0].match(/\(([^)]*)\)/)?.[1] || ''})${correctParticle}`)
         );
@@ -194,5 +246,87 @@ export class GrammarValidator extends BaseValidator {
     
     // For non-Korean characters or numbers, default to '을'
     return '을';
+  }
+
+  /**
+   * Check if spacing appears to be intentional formatting (tables, lists, indentation)
+   */
+  private isIntentionalSpacing(text: string): boolean {
+    // Check for tabular data patterns (numbers or structured content with spacing)
+    const tabularPatterns = [
+      /\d+\s{3,}\d+/,           // Numbers separated by multiple spaces
+      /[가-힣]+\s{3,}[가-힣]+\s{3,}[가-힣]+/, // Korean words in columns
+      /^[\s]{3,}[^\s]/m,        // Lines starting with indentation
+      /[A-Za-z]\s{3,}[A-Za-z]/, // English letters in columns
+    ];
+    
+    // Check for list-like formatting
+    const listPatterns = [
+      /^\s*[-•·]\s+/m,          // Bullet points with spacing
+      /^\s*\d+\.\s+/m,          // Numbered lists with spacing
+      /^\s*[가나다라마]\.\s+/m, // Korean numbered lists
+    ];
+    
+    const allPatterns = [...tabularPatterns, ...listPatterns];
+    
+    return allPatterns.some(pattern => pattern.test(text));
+  }
+
+  /**
+   * Check if text contains structured data (numbers, dates, tables) rather than narrative content
+   */
+  private isStructuredData(text: string): boolean {
+    // Check for patterns indicating structured/tabular data
+    const structuredPatterns = [
+      /\d{4}[-./]\d{1,2}[-./]\d{1,2}/,    // Date patterns
+      /\d+시\s*\d*분?/,                   // Time patterns (3시, 14시 30분)
+      /\d+학년\s*\d*반?/,                 // Grade/class patterns
+      /^\s*\d+[.)\s]/,                   // Numbered list items
+      /\d+\s*[점명개]$/,                  // Numbers with units (5점, 3명, 2개)
+      /^\s*[-•·]\s/,                     // Bullet points
+      /\d+\s*[%℃도]/,                   // Percentages, temperatures
+      /[가-힣]+\s*:\s*\d/,               // Label: number patterns
+      /\d+\s*\/\s*\d+/,                  // Fraction patterns (3/5)
+    ];
+
+    // If more than 30% of text is numbers/punctuation, likely structured
+    const nonKoreanChars = text.replace(/[가-힣ㄱ-ㅎㅏ-ㅣ]/g, '').length;
+    const totalChars = text.length;
+    const nonKoreanRatio = totalChars > 0 ? nonKoreanChars / totalChars : 0;
+
+    return structuredPatterns.some(pattern => pattern.test(text)) || 
+           nonKoreanRatio > 0.3;
+  }
+
+  /**
+   * Check if text is narrative content that should end with proper punctuation
+   */
+  private isNarrativeText(text: string): boolean {
+    // Text is narrative if it contains Korean sentence patterns
+    const narrativePatterns = [
+      /[가-힣]+다\s*$/,                   // Verb endings: ~다
+      /[가-힣]+었다\s*$/,                 // Past tense: ~었다
+      /[가-힣]+였다\s*$/,                 // Past tense: ~였다  
+      /[가-힣]+했다\s*$/,                 // Past tense: ~했다
+      /[가-힣]+한다\s*$/,                 // Present tense: ~한다
+      /[가-힣]+된다\s*$/,                 // Passive: ~된다
+      /[가-힣]+있다\s*$/,                 // State: ~있다
+      /[가-힣]+없다\s*$/,                 // Negation: ~없다
+      /[가-힣]+된\s*[가-힣]+/,           // Adjective patterns
+      /[가-힣]+하는\s*[가-힣]+/,         // Modifier patterns
+    ];
+
+    // Must contain Korean text and sentence-like patterns
+    const hasKoreanText = /[가-힣]/.test(text);
+    const hasNarrativePattern = narrativePatterns.some(pattern => pattern.test(text));
+    
+    // Must be longer than typical structured data
+    const isLongEnough = text.length > 15;
+    
+    // Should not be predominantly numbers/symbols
+    const koreanChars = (text.match(/[가-힣]/g) || []).length;
+    const hasEnoughKorean = koreanChars > 5;
+
+    return hasKoreanText && hasNarrativePattern && isLongEnough && hasEnoughKorean;
   }
 }

@@ -24,6 +24,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  ToggleButtonGroup,
+  ToggleButton,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
@@ -32,9 +34,12 @@ import {
   Warning as WarningIcon,
   Info as InfoIcon,
   Visibility as VisibilityIcon,
+  ViewList as TableViewIcon,
+  Highlight as HighlightViewIcon,
 } from '@mui/icons-material';
 import { ValidationResult, ValidationError } from '../types/validation';
 import { reportApi, downloadFile } from '../services/api';
+import HighlightedTextDisplay from './HighlightedTextDisplay';
 
 interface ValidationResultsProps {
   validationResult: ValidationResult;
@@ -64,6 +69,7 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [downloading, setDownloading] = useState(false);
   const [selectedError, setSelectedError] = useState<ValidationError | null>(null);
+  const [viewMode, setViewMode] = useState<'table' | 'highlight'>('table');
 
   const handleDownload = async (format: 'excel' | 'csv' | 'json') => {
     setDownloading(true);
@@ -75,6 +81,15 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({
       onError('보고서 다운로드에 실패했습니다.');
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleViewModeChange = (
+    _event: React.MouseEvent<HTMLElement>,
+    newMode: 'table' | 'highlight'
+  ) => {
+    if (newMode !== null) {
+      setViewMode(newMode);
     }
   };
 
@@ -280,45 +295,91 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({
         </Button>
       </Box>
 
-      {/* Results Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-          <Tab
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <ErrorIcon fontSize="small" />
-                오류 ({validationResult.errors.length})
-              </Box>
-            }
-          />
-          <Tab
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <WarningIcon fontSize="small" />
-                경고 ({validationResult.warnings.length})
-              </Box>
-            }
-          />
-          <Tab
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <InfoIcon fontSize="small" />
-                정보 ({validationResult.info.length})
-              </Box>
-            }
-          />
-        </Tabs>
+      {/* View Mode Toggle */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h6">
+          📊 검증 결과 보기
+        </Typography>
+        <ToggleButtonGroup
+          value={viewMode}
+          exclusive
+          onChange={handleViewModeChange}
+          size="small"
+        >
+          <ToggleButton value="table">
+            <TableViewIcon fontSize="small" sx={{ mr: 1 }} />
+            테이블 뷰
+          </ToggleButton>
+          <ToggleButton value="highlight">
+            <HighlightViewIcon fontSize="small" sx={{ mr: 1 }} />
+            하이라이트 뷰
+          </ToggleButton>
+        </ToggleButtonGroup>
       </Box>
 
-      {/* Results Table */}
-      <TabPanel value={tabValue} index={tabValue}>
-        {currentData.length > 0 ? (
-          <>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>심각도</TableCell>
+      {/* Highlighted Text Display */}
+      {viewMode === 'highlight' && (
+        <Box sx={{ mb: 3 }}>
+          {(() => {
+            // Get original text from the first error with text, or show a message
+            const allIssues = [...validationResult.errors, ...validationResult.warnings, ...validationResult.info];
+            const firstIssueWithText = allIssues.find(issue => issue.originalText && issue.originalText.trim().length > 0);
+            const originalText = firstIssueWithText?.originalText || '원본 텍스트를 찾을 수 없습니다.';
+            
+            return (
+              <HighlightedTextDisplay
+                originalText={originalText}
+                errors={validationResult.errors}
+                warnings={validationResult.warnings}
+                info={validationResult.info}
+                onErrorClick={setSelectedError}
+                fileName={validationResult.fileName}
+              />
+            );
+          })()}
+        </Box>
+      )}
+
+      {/* Results Tabs */}
+      {viewMode === 'table' && (
+        <>
+          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
+            <Tab
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ErrorIcon fontSize="small" />
+                  오류 ({validationResult.errors.length})
+                </Box>
+              }
+            />
+            <Tab
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <WarningIcon fontSize="small" />
+                  경고 ({validationResult.warnings.length})
+                </Box>
+              }
+            />
+            <Tab
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <InfoIcon fontSize="small" />
+                  정보 ({validationResult.info.length})
+                </Box>
+              }
+            />
+          </Tabs>
+        </Box>
+
+        <TabPanel value={tabValue} index={tabValue}>
+          {currentData.length > 0 ? (
+            <>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>심각도</TableCell>
                     <TableCell>유형</TableCell>
                     <TableCell>위치</TableCell>
                     <TableCell>메시지</TableCell>
@@ -398,7 +459,9 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({
              '추가 정보가 없습니다!'}
           </Alert>
         )}
-      </TabPanel>
+        </TabPanel>
+        </>
+      )}
 
       {/* Error Detail Dialog */}
       <Dialog
@@ -432,10 +495,63 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({
               
               <Box sx={{ mb: 2 }}>
                 <Typography variant="subtitle2" gutterBottom>원본 텍스트</Typography>
-                <Typography variant="body2" fontFamily="monospace" sx={{ p: 1, bgcolor: 'grey.100', borderRadius: 1 }}>
-                  {selectedError.originalText}
-                </Typography>
+                {selectedError.markedText ? (
+                  <Box
+                    sx={{ 
+                      p: 1, 
+                      bgcolor: 'grey.100', 
+                      borderRadius: 1,
+                      fontFamily: 'monospace',
+                      '& .error-highlight': {
+                        backgroundColor: '#ffcdd2',
+                        padding: '2px 4px',
+                        borderRadius: '4px',
+                        border: '1px solid #f44336'
+                      },
+                      '& .warning-highlight': {
+                        backgroundColor: '#fff9c4',
+                        padding: '2px 4px',
+                        borderRadius: '4px', 
+                        border: '1px solid #ff9800'
+                      },
+                      '& .info-highlight': {
+                        backgroundColor: '#e1f5fe',
+                        padding: '2px 4px',
+                        borderRadius: '4px',
+                        border: '1px solid #2196f3'
+                      }
+                    }}
+                    dangerouslySetInnerHTML={{ __html: selectedError.markedText }}
+                  />
+                ) : (
+                  <Typography variant="body2" fontFamily="monospace" sx={{ p: 1, bgcolor: 'grey.100', borderRadius: 1 }}>
+                    {selectedError.originalText}
+                  </Typography>
+                )}
               </Box>
+
+              {selectedError.highlightRange && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>오류 위치</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    문자 {selectedError.highlightRange.start}~{selectedError.highlightRange.end} 
+                    ({selectedError.highlightRange.end - selectedError.highlightRange.start}글자)
+                  </Typography>
+                </Box>
+              )}
+
+              {(selectedError.contextBefore || selectedError.contextAfter) && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>문맥</Typography>
+                  <Typography variant="body2" fontFamily="monospace" sx={{ p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
+                    {selectedError.contextBefore}
+                    <Box component="span" sx={{ backgroundColor: '#ffeb3b', padding: '1px 2px', borderRadius: '2px' }}>
+                      [오류 부분]
+                    </Box>
+                    {selectedError.contextAfter}
+                  </Typography>
+                </Box>
+              )}
               
               {selectedError.suggestion && (
                 <Box sx={{ mb: 2 }}>

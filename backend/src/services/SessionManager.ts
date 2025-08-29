@@ -125,7 +125,8 @@ export class SessionManager {
       metadata: {
         sheetCount: categoryResult.sheetAnalysis.length,
         detectedKeywords: categoryResult.detectedKeywords,
-        suggestedAlternatives: categoryResult.suggestedAlternatives
+        suggestedAlternatives: categoryResult.suggestedAlternatives,
+        buffer: buffer // Store buffer temporarily for batch validation
       }
     };
 
@@ -187,6 +188,13 @@ export class SessionManager {
     file.status = status;
     if (validationId) {
       file.validationId = validationId;
+    }
+
+    // Clean up buffer after processing to free memory
+    if (status === 'completed' || status === 'failed') {
+      if (file.metadata?.buffer) {
+        file.metadata.buffer = undefined;
+      }
     }
 
     // Update session metadata

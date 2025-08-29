@@ -1,9 +1,25 @@
-import { ValidationResult, ExcelData } from '../types/validation';
+import { ValidationResult, ExcelData, ValidationError } from '../types/validation';
 import { ValidationService } from './ValidationService';
 import { SessionManager, SessionData } from './SessionManager';
 import { FileCategory } from './FileCategoryDetector';
 import { ExcelProcessor } from './ExcelProcessor';
 import { v4 as uuidv4 } from 'uuid';
+import * as xlsx from 'xlsx';
+
+// NEIS page processing interfaces
+interface PageContext {
+  hasStudentInfo: boolean;
+  studentName?: string;
+  previousPageContent?: string;
+  isHeaderRow: boolean;
+  pageNumber?: number;
+}
+
+interface SheetData {
+  name: string;
+  data: any[][];
+  range?: string;
+}
 
 export interface BatchValidationOptions {
   validateAll: boolean;
@@ -143,6 +159,81 @@ export class SelectiveValidationService {
   }
 
   /**
+   * Validate all files in session synchronously - returns results immediately
+   */
+  async validateAllFilesSync(sessionId: string): Promise<ValidationResult[]> {
+    const session = this.sessionManager.getSession(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    // Get ALL session files regardless of status
+    const allFiles = this.sessionManager.getSessionFiles(sessionId);
+    
+    if (allFiles.length === 0) {
+      throw new Error('No files found in session');
+    }
+
+    console.log(`🚀 Starting synchronous validation for ${allFiles.length} files in session ${sessionId}`);
+    
+    const results: ValidationResult[] = [];
+    
+    // Process files in parallel using Promise.allSettled to handle individual failures
+    const validationPromises = allFiles.map(async (file) => {
+      try {
+        console.log(`🔍 Validating file: ${file.fileName}`);
+        return await this.validateSingleFileSync(file);
+      } catch (error) {
+        console.error(`❌ Validation failed for ${file.fileName}:`, error);
+        // Return a failed validation result instead of throwing
+        return {
+          id: file.id,
+          fileName: file.fileName,
+          status: 'failed' as const,
+          progress: 100,
+          errors: [{
+            id: uuidv4(),
+            type: 'ai_validation',
+            severity: 'error',
+            message: error instanceof Error ? error.message : 'Validation failed',
+            location: { sheet: 'unknown', cell: 'N/A', row: 0, column: 'N/A' },
+            originalText: '',
+            rule: 'System validation error',
+            confidence: 1.0,
+            suggestion: 'Please check the file format and try again'
+          }],
+          warnings: [],
+          info: [],
+          summary: {
+            totalCells: 0,
+            checkedCells: 0,
+            errorCount: 1,
+            warningCount: 0,
+            infoCount: 0
+          },
+          createdAt: new Date(),
+          completedAt: new Date()
+        } as ValidationResult;
+      }
+    });
+
+    const validationResults = await Promise.allSettled(validationPromises);
+    
+    // Process results
+    for (const result of validationResults) {
+      if (result.status === 'fulfilled' && result.value) {
+        results.push(result.value);
+      } else {
+        console.error('Failed to process validation result:', result);
+      }
+    }
+
+    console.log(`✅ Synchronous validation completed for session ${sessionId}. Results: ${results.length} files`);
+    
+    return results;
+  }
+
+  /**
    * Get batch validation result
    */
   getBatchResult(batchId: string): BatchValidationResult | null {
@@ -186,12 +277,11 @@ export class SelectiveValidationService {
 
     batch.status = 'processing';
     const startTime = Date.now();
+    let completedFiles = 0;
 
     try {
       const maxConcurrency = batch.options.maxConcurrency || 3;
       const chunks = this.chunkArray(files, maxConcurrency);
-
-      let completedFiles = 0;
 
       // Process files in chunks for controlled concurrency
       for (const chunk of chunks) {
@@ -201,36 +291,58 @@ export class SelectiveValidationService {
           break;
         }
 
-        // Process chunk in parallel
+        // Process chunk with individual error handling
         const chunkPromises = chunk.map(async (file) => {
           // Check if batch was cancelled
           const currentBatch = this.batchValidations.get(batchId);
           if (!currentBatch || currentBatch.status === 'cancelled') {
-            return;
+            return { success: false, file, error: 'Cancelled' };
           }
 
           try {
             await this.validateSingleFile(batchId, file);
-            completedFiles++;
+            return { success: true, file };
           } catch (error) {
             console.error(`Validation failed for file ${file.fileName}:`, error);
+            return { success: false, file, error };
+          }
+        });
+
+        // Wait for all files in chunk to complete (with individual error handling)
+        const chunkResults = await Promise.allSettled(chunkPromises);
+        
+        // Process results and update counters
+        for (const result of chunkResults) {
+          if (result.status === 'fulfilled' && result.value) {
+            if (result.value.success) {
+              completedFiles++;
+            } else {
+              batch.summary.failedFiles++;
+              console.error(`File ${result.value.file.fileName} failed:`, result.value.error);
+            }
+          } else {
             batch.summary.failedFiles++;
+            console.error(`Chunk processing failed:`, result.status === 'rejected' ? result.reason : 'Unknown error');
           }
 
-          // Update progress
-          batch.progress = Math.round((completedFiles / files.length) * 100);
+          // Update progress after each file
+          batch.progress = Math.round((completedFiles + batch.summary.failedFiles) / files.length * 100);
           batch.summary.completedFiles = completedFiles;
           
           // Update estimated completion time
-          const elapsedSeconds = (Date.now() - startTime) / 1000;
-          const avgTimePerFile = elapsedSeconds / completedFiles;
-          const remainingFiles = files.length - completedFiles;
-          const estimatedRemainingSeconds = remainingFiles * avgTimePerFile;
-          
-          batch.estimatedCompletionTime = new Date(Date.now() + estimatedRemainingSeconds * 1000);
-        });
+          const processedFiles = completedFiles + batch.summary.failedFiles;
+          if (processedFiles > 0) {
+            const elapsedSeconds = (Date.now() - startTime) / 1000;
+            const avgTimePerFile = elapsedSeconds / processedFiles;
+            const remainingFiles = files.length - processedFiles;
+            const estimatedRemainingSeconds = remainingFiles * avgTimePerFile;
+            
+            batch.estimatedCompletionTime = new Date(Date.now() + estimatedRemainingSeconds * 1000);
+          }
+        }
 
-        await Promise.all(chunkPromises);
+        // Small delay between chunks to prevent overwhelming the system
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
       // Finalize batch
@@ -244,6 +356,7 @@ export class SelectiveValidationService {
       batch.summary.processingTimeSeconds = (Date.now() - startTime) / 1000;
 
       console.log(`✅ Batch validation completed: ${batchId} (${batch.summary.processingTimeSeconds}s)`);
+      console.log(`   Completed: ${completedFiles}, Failed: ${batch.summary.failedFiles}, Total: ${files.length}`);
 
     } catch (error) {
       console.error(`Batch validation error for ${batchId}:`, error);
@@ -254,7 +367,7 @@ export class SelectiveValidationService {
   }
 
   /**
-   * Validate a single file
+   * Validate a single file with real Excel processing
    */
   private async validateSingleFile(batchId: string, file: FileCategory): Promise<void> {
     const batch = this.batchValidations.get(batchId);
@@ -266,77 +379,174 @@ export class SelectiveValidationService {
     this.sessionManager.updateFileStatus(batch.sessionId, file.id, 'processing');
 
     try {
-      // Create validation ID
-      const validationId = uuidv4();
-
-      // For this prototype, we'll simulate file processing
-      // In reality, you would need to store the file buffer or read from storage
+      console.log(`🔍 Validating file: ${file.fileName}`);
       
-      // Create mock Excel data for validation
-      const mockExcelData: ExcelData = {
-        sheets: {
-          [file.category]: {
-            data: [['Sample data for validation']],
-            range: 'A1:A1'
-          }
-        },
-        fileName: file.fileName,
-        fileSize: file.fileSize,
-        format: 'generic'
-      };
-
-      // Create validation result
-      const validationResult: ValidationResult = {
-        id: validationId,
-        fileName: file.fileName,
-        status: 'pending',
-        progress: 0,
-        errors: [],
-        warnings: [],
-        info: [],
-        summary: {
-          totalCells: 100, // Mock value
-          checkedCells: 0,
-          errorCount: 0,
-          warningCount: 0,
-          infoCount: 0,
-        },
-        createdAt: new Date(),
-      };
-
-      // Store validation result
-      ValidationService.storeResult(validationId, validationResult);
-
-      // Start validation
-      await ValidationService.validateData(validationId, mockExcelData);
-
-      // Get completed result
-      const completedResult = ValidationService.getResult(validationId);
-      if (completedResult) {
-        // Store result in batch
-        batch.results.set(file.id, completedResult);
-        
-        // Add to session
-        this.sessionManager.addValidationResult(batch.sessionId, file.id, completedResult);
-        
-        // Update batch summary
-        batch.summary.totalErrors += completedResult.errors.length;
-        batch.summary.totalWarnings += completedResult.warnings.length;
-        batch.summary.totalInfo += completedResult.info.length;
-
-        // Update file status
-        this.sessionManager.updateFileStatus(
-          batch.sessionId, 
-          file.id, 
-          completedResult.status === 'completed' ? 'completed' : 'failed',
-          validationId
-        );
+      // Get buffer from file metadata
+      const buffer = file.metadata?.buffer;
+      if (!buffer) {
+        throw new Error(`No buffer found for file: ${file.fileName}`);
       }
+      
+      // Process the Excel file and validate it
+      const validationResult = await this.validateFileContent(file.fileName, buffer);
+      
+      // Store result in batch
+      batch.results.set(file.id, validationResult);
+      
+      // Add to session
+      this.sessionManager.addValidationResult(batch.sessionId, file.id, validationResult);
+      
+      // Update batch summary
+      batch.summary.totalErrors += validationResult.errors.length;
+      batch.summary.totalWarnings += validationResult.warnings.length;
+      batch.summary.totalInfo += validationResult.info.length;
+
+      // Update file status
+      this.sessionManager.updateFileStatus(
+        batch.sessionId, 
+        file.id, 
+        validationResult.status === 'completed' ? 'completed' : 'failed'
+      );
 
     } catch (error) {
+      console.error(`❌ Error validating file ${file.fileName}:`, error);
       // Update file status to failed
       this.sessionManager.updateFileStatus(batch.sessionId, file.id, 'failed');
       throw error;
+    }
+  }
+
+  /**
+   * Validate a single file synchronously (for direct session validation)
+   */
+  private async validateSingleFileSync(file: FileCategory): Promise<ValidationResult> {
+    try {
+      console.log(`🔍 Starting synchronous validation for: ${file.fileName}`);
+      
+      // Get buffer from file metadata
+      const buffer = file.metadata?.buffer;
+      if (!buffer) {
+        throw new Error(`No buffer found for file: ${file.fileName}`);
+      }
+      
+      // Process the Excel file and validate it directly
+      const validationResult = await this.validateFileContent(file.fileName, buffer);
+      
+      // Add file ID as a separate field (keep the validation ID intact)
+      (validationResult as any).fileId = file.id;
+      
+      // Store the final result with fileId back to ValidationService
+      console.log(`🔍 STORING validation result ${validationResult.id} in ValidationService`);
+      ValidationService.storeResult(validationResult.id, validationResult);
+      
+      // Verify it was stored
+      const stored = ValidationService.getResult(validationResult.id);
+      console.log(`✅ Verification: stored result exists = ${!!stored}`);
+      
+      console.log(`✅ Synchronous validation completed for: ${file.fileName}`);
+      console.log(`   Errors: ${validationResult.errors.length}, Warnings: ${validationResult.warnings.length}, Info: ${validationResult.info.length}`);
+      
+      return validationResult;
+
+    } catch (error) {
+      console.error(`❌ Synchronous validation failed for ${file.fileName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate file content using ExcelProcessor and ValidationService
+   */
+  private async validateFileContent(fileName: string, buffer: Buffer): Promise<ValidationResult> {
+    try {
+      // Initialize result
+      const validationId = uuidv4();
+      const validationResult: ValidationResult = {
+        id: validationId,
+        fileName,
+        status: 'processing',
+        progress: 0,
+        createdAt: new Date(),
+        summary: {
+          totalCells: 0,
+          checkedCells: 0,
+          errorCount: 0,
+          warningCount: 0,
+          infoCount: 0
+        },
+        errors: [],
+        warnings: [],
+        info: []
+      };
+
+      // Store initial result
+      ValidationService.storeResult(validationId, validationResult);
+
+      // Process Excel file
+      const excelProcessor = new ExcelProcessor();
+      const excelData = await excelProcessor.processFile(buffer, fileName);
+
+      // Calculate total cells
+      let totalCells = 0;
+      if (excelData.neisData && excelData.format === 'neis') {
+        // Count cells in NEIS format
+        for (const student of excelData.neisData.students) {
+          for (const [sectionName, sectionData] of Object.entries(student.sections)) {
+            if (sectionData) {
+              totalCells += sectionData.contentRows.reduce((sum, row) => sum + row.length, 0);
+            }
+          }
+        }
+      } else {
+        // Count cells in generic format
+        for (const sheet of Object.values(excelData.sheets)) {
+          totalCells += sheet.data.reduce((sum, row) => sum + row.length, 0);
+        }
+      }
+
+      validationResult.summary.totalCells = totalCells;
+      ValidationService.storeResult(validationId, validationResult);
+
+      // Run validation
+      await ValidationService.validateData(validationId, excelData);
+
+      // Get the final result
+      const finalResult = ValidationService.getResult(validationId);
+      if (!finalResult) {
+        throw new Error('Validation result not found after processing');
+      }
+
+      return finalResult;
+
+    } catch (error) {
+      console.error(`File validation error for ${fileName}:`, error);
+      
+      // Return error result
+      return {
+        id: uuidv4(),
+        fileName,
+        status: 'failed',
+        progress: 0,
+        createdAt: new Date(),
+        summary: {
+          totalCells: 0,
+          checkedCells: 0,
+          errorCount: 1,
+          warningCount: 0,
+          infoCount: 0
+        },
+        errors: [{
+          id: `system-error-${Date.now()}`,
+          type: 'ai_validation',
+          severity: 'error',
+          message: `File processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          location: { sheet: 'System', row: 0, column: 'A', cell: 'A0' },
+          originalText: '',
+          rule: 'system-validation'
+        }],
+        warnings: [],
+        info: []
+      };
     }
   }
 
@@ -360,8 +570,13 @@ export class SelectiveValidationService {
       }
     }
 
-    // Filter out already processing/completed files unless forced
-    return files.filter(file => file.status === 'pending' || file.status === 'failed');
+    // For batch validation, allow re-validation of files for debugging and testing
+    // Include all files except those currently processing
+    return files.filter(file => 
+      file.status === 'pending' || 
+      file.status === 'failed' ||
+      file.status === 'completed'  // Allow re-validation of completed files
+    );
   }
 
   /**

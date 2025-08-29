@@ -67,9 +67,10 @@ export class AIValidator extends BaseValidator {
   "issues": [
     {
       "type": "content|grammar|appropriateness|style",
-      "severity": "high|medium|low",
+      "severity": "high|medium|low", 
       "message": "문제 설명",
       "suggestion": "개선 제안",
+      "problemText": "문제가 있는 정확한 텍스트 부분",
       "confidence": 0.8
     }
   ]
@@ -80,7 +81,9 @@ export class AIValidator extends BaseValidator {
 2. 학교생활기록부 작성 규정 준수
 3. 한국어 문법 및 표현의 자연스러움
 4. 내용의 구체성과 객관성
-5. 학생 개인정보 보호 관련 사항`
+5. 학생 개인정보 보호 관련 사항
+
+중요: "problemText"에는 원본 텍스트에서 정확히 일치하는 문제 부분을 포함해주세요.`
           },
           {
             role: 'user',
@@ -120,6 +123,7 @@ export class AIValidator extends BaseValidator {
 4. 내용의 객관성과 구체성
 5. 개인정보 보호 관련 이슈
 
+응답 시 문제가 있는 정확한 텍스트 부분을 "problemText" 필드에 포함해주세요.
 문제가 없으면 빈 배열로 응답해주세요.`;
   }
 
@@ -131,13 +135,47 @@ export class AIValidator extends BaseValidator {
       if (response.issues && Array.isArray(response.issues)) {
         for (const issue of response.issues) {
           const severity = this.mapSeverity(issue.severity);
-          const error = this.createError(
+          
+          // Calculate highlight range if problemText is provided
+          let highlightRange: { start: number; end: number } | undefined = undefined;
+          let contextBefore: string | undefined = undefined;
+          let contextAfter: string | undefined = undefined;
+          
+          if (issue.problemText && originalText) {
+            const problemText = issue.problemText.toString().trim();
+            const startIndex = originalText.indexOf(problemText);
+            
+            if (startIndex !== -1) {
+              highlightRange = {
+                start: startIndex,
+                end: startIndex + problemText.length
+              };
+              
+              // Extract context (30 characters before and after)
+              const contextLength = 30;
+              const contextStart = Math.max(0, startIndex - contextLength);
+              const contextEnd = Math.min(originalText.length, startIndex + problemText.length + contextLength);
+              
+              contextBefore = startIndex > contextLength ? 
+                '...' + originalText.substring(contextStart, startIndex) :
+                originalText.substring(0, startIndex);
+                
+              contextAfter = startIndex + problemText.length + contextLength < originalText.length ?
+                originalText.substring(startIndex + problemText.length, contextEnd) + '...' :
+                originalText.substring(startIndex + problemText.length);
+            }
+          }
+          
+          const error = this.createErrorWithHighlight(
             issue.message || 'AI 검증에서 문제가 발견되었습니다',
             `ai-validation-${issue.type || 'content'}`,
             severity,
             originalText,
             issue.suggestion,
-            issue.confidence || 0.7
+            issue.confidence || 0.7,
+            highlightRange,
+            contextBefore,
+            contextAfter
           );
           errors.push(error);
         }

@@ -360,6 +360,35 @@ export const reportApi = {
     const response = await api.get(`/report/${validationId}/errors/${type}`);
     return response.data;
   },
+
+  // Batch download functionality
+  downloadBatchReport: async (
+    validationIds: string[], 
+    format: 'json' | 'excel' | 'csv' | 'zip' = 'excel', 
+    mergeResults: boolean = true
+  ): Promise<Blob> => {
+    const response = await api.post(`/report/batch/download`, {
+      validationIds,
+      mergeResults
+    }, {
+      params: { format },
+      responseType: 'blob',
+      timeout: 120000, // 2 minutes for batch processing
+    });
+    return response.data;
+  },
+
+  downloadSessionReport: async (
+    sessionId: string, 
+    format: 'json' | 'excel' | 'csv' | 'zip' = 'excel'
+  ): Promise<Blob> => {
+    const response = await api.get(`/report/session/${sessionId}/download`, {
+      params: { format },
+      responseType: 'blob',
+      timeout: 120000, // 2 minutes for batch processing
+    });
+    return response.data;
+  },
 };
 
 export const healthApi = {

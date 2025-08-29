@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  setukreview:
+    build: .
+    container_name: setukreview-app
+    ports:
+      - "3000:3000"  # Frontend
+      - "3001:3001"  # Backend API
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - CORS_ORIGIN=http://43.201.9.224:3000
+    volumes:
+      - /app/logs:/app/logs
+      - /app/uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

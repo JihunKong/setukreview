@@ -14,6 +14,7 @@ export interface FileCategory {
     sheetCount: number;
     detectedKeywords: string[];
     suggestedAlternatives?: string[];
+    buffer?: Buffer; // Store buffer temporarily for batch validation
   };
 }
 

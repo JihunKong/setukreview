@@ -7,10 +7,14 @@ import { AIValidator } from '../validators/AIValidator';
 import { DuplicateDetectionValidator } from '../validators/DuplicateDetectionValidator';
 import { AttendanceDuplicateValidator } from '../validators/AttendanceDuplicateValidator';
 import { CrossStudentDuplicateDetector } from '../validators/CrossStudentDuplicateDetector';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class ValidationService {
   private static validationResults = new Map<string, ValidationResult>();
   private static activeValidations = new Set<string>();
+  private static readonly STORAGE_DIR = path.join(__dirname, '../validation-storage');
+  private static storageInitialized = false;
 
   static async validateData(validationId: string, excelData: ExcelData): Promise<void> {
     const result = this.getResult(validationId);
@@ -86,7 +90,8 @@ export class ValidationService {
     for (let studentIndex = 0; studentIndex < neisData.students.length; studentIndex++) {
       const student = neisData.students[studentIndex];
       
-      console.log(`📚 Processing student: ${student.studentInfo.name || '미상'} (${studentIndex + 1}/${neisData.students.length})`);
+      const displayName = this.getDisplayName(student.studentInfo.name);
+      console.log(`📚 Processing student: ${displayName} (${studentIndex + 1}/${neisData.students.length})`);
 
       // Validate each section for this student
       for (const [sectionName, sectionData] of Object.entries(student.sections)) {
@@ -117,13 +122,14 @@ export class ValidationService {
             const cellRef = this.getCellReference(actualRow, colIndex);
             
             // Enhanced context for NEIS validation
+            const displayName = this.getDisplayName(student.studentInfo.name);
             const context: ValidationContext = {
-              sheet: `${student.studentInfo.name || '미상'}_${sectionName}`,
+              sheet: `${displayName}_${sectionName}`,
               row: actualRow + 1,
               column: this.getColumnLetter(colIndex),
               cell: cellRef,
               // Duplicate detection context
-              studentName: student.studentInfo.name || '미상',
+              studentName: displayName,
               section: sectionName,
               adjacentCells: this.getAdjacentCellsFromArray(row, rowIndex, colIndex),
               neisContext: {
@@ -143,8 +149,9 @@ export class ValidationService {
                 if (errors && errors.length > 0) {
                   errors.forEach(error => {
                     // Enhanced error location with student context
+                    const displayName = this.getDisplayName(student.studentInfo.name);
                     error.location = {
-                      sheet: `${student.studentInfo.name}_${sectionName}`,
+                      sheet: `${displayName}_${sectionName}`,
                       row: context.row,
                       column: context.column,
                       cell: context.cell
@@ -152,7 +159,7 @@ export class ValidationService {
                     error.originalText = cellText;
                     
                     // Add student context to error message
-                    error.message = `[${student.studentInfo.name} - ${sectionName}] ${error.message}`;
+                    error.message = `[${displayName} - ${sectionName}] ${error.message}`;
                     
                     // Categorize by severity
                     if (error.severity === 'error') {
@@ -165,7 +172,8 @@ export class ValidationService {
                   });
                 }
               } catch (validatorError) {
-                console.error(`Validator error for ${student.studentInfo.name} ${sectionName} ${cellRef}:`, validatorError);
+                const displayName = this.getDisplayName(student.studentInfo.name);
+                console.error(`Validator error for ${displayName} ${sectionName} ${cellRef}:`, validatorError);
               }
             }
 
@@ -316,10 +324,106 @@ export class ValidationService {
 
   static storeResult(validationId: string, result: ValidationResult): void {
     this.validationResults.set(validationId, result);
+    this.saveToFile(validationId, result);
   }
 
   static getResult(validationId: string): ValidationResult | undefined {
-    return this.validationResults.get(validationId);
+    // First try memory
+    let result = this.validationResults.get(validationId);
+    
+    // If not in memory, try to load from file
+    if (!result) {
+      result = this.loadFromFile(validationId);
+      if (result) {
+        this.validationResults.set(validationId, result);
+      }
+    }
+    
+    return result;
+  }
+
+  private static initializeStorage(): void {
+    if (!this.storageInitialized) {
+      try {
+        if (!fs.existsSync(this.STORAGE_DIR)) {
+          fs.mkdirSync(this.STORAGE_DIR, { recursive: true });
+        }
+        this.storageInitialized = true;
+        console.log(`📁 Validation storage initialized at: ${this.STORAGE_DIR}`);
+      } catch (error) {
+        console.error('❌ Failed to initialize storage directory:', error);
+      }
+    }
+  }
+
+  private static saveToFile(validationId: string, result: ValidationResult): void {
+    try {
+      this.initializeStorage();
+      const filePath = path.join(this.STORAGE_DIR, `${validationId}.json`);
+      
+      // Create a serializable copy of the result
+      const serializableResult = {
+        ...result,
+        createdAt: result.createdAt.toISOString(),
+        completedAt: result.completedAt?.toISOString(),
+      };
+      
+      fs.writeFileSync(filePath, JSON.stringify(serializableResult, null, 2), 'utf8');
+    } catch (error) {
+      console.error(`❌ Failed to save validation ${validationId} to file:`, error);
+    }
+  }
+
+  private static loadFromFile(validationId: string): ValidationResult | undefined {
+    try {
+      this.initializeStorage();
+      const filePath = path.join(this.STORAGE_DIR, `${validationId}.json`);
+      
+      if (!fs.existsSync(filePath)) {
+        return undefined;
+      }
+      
+      const data = fs.readFileSync(filePath, 'utf8');
+      const parsed = JSON.parse(data);
+      
+      // Convert date strings back to Date objects
+      return {
+        ...parsed,
+        createdAt: new Date(parsed.createdAt),
+        completedAt: parsed.completedAt ? new Date(parsed.completedAt) : undefined,
+      };
+    } catch (error) {
+      console.error(`❌ Failed to load validation ${validationId} from file:`, error);
+      return undefined;
+    }
+  }
+
+  static loadAllFromFiles(): void {
+    try {
+      this.initializeStorage();
+      
+      if (!fs.existsSync(this.STORAGE_DIR)) {
+        return;
+      }
+      
+      const files = fs.readdirSync(this.STORAGE_DIR);
+      let loadedCount = 0;
+      
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const validationId = file.replace('.json', '');
+          const result = this.loadFromFile(validationId);
+          if (result) {
+            this.validationResults.set(validationId, result);
+            loadedCount++;
+          }
+        }
+      }
+      
+      console.log(`📋 Loaded ${loadedCount} validation results from storage`);
+    } catch (error) {
+      console.error('❌ Failed to load validation results from files:', error);
+    }
   }
 
   static cancelValidation(validationId: string): void {
@@ -340,13 +444,63 @@ export class ValidationService {
   }
 
   static cleanup(): void {
-    // Remove validations older than 24 hours
+    // Remove validations older than 24 hours from both memory and files
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    let cleanedCount = 0;
     
     for (const [id, result] of this.validationResults.entries()) {
       if (result.createdAt < oneDayAgo) {
         this.validationResults.delete(id);
+        this.deleteFile(id);
+        cleanedCount++;
       }
+    }
+    
+    // Also check files that might not be in memory
+    this.cleanupFiles(oneDayAgo);
+    
+    if (cleanedCount > 0) {
+      console.log(`🧹 Cleaned up ${cleanedCount} old validation results`);
+    }
+  }
+
+  private static deleteFile(validationId: string): void {
+    try {
+      const filePath = path.join(this.STORAGE_DIR, `${validationId}.json`);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (error) {
+      console.error(`❌ Failed to delete file for validation ${validationId}:`, error);
+    }
+  }
+
+  private static cleanupFiles(cutoffDate: Date): void {
+    try {
+      if (!fs.existsSync(this.STORAGE_DIR)) {
+        return;
+      }
+      
+      const files = fs.readdirSync(this.STORAGE_DIR);
+      let filesDeleted = 0;
+      
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const filePath = path.join(this.STORAGE_DIR, file);
+          const stats = fs.statSync(filePath);
+          
+          if (stats.mtime < cutoffDate) {
+            fs.unlinkSync(filePath);
+            filesDeleted++;
+          }
+        }
+      }
+      
+      if (filesDeleted > 0) {
+        console.log(`🗑️ Deleted ${filesDeleted} old validation files`);
+      }
+    } catch (error) {
+      console.error('❌ Failed to cleanup old validation files:', error);
     }
   }
 
@@ -380,6 +534,30 @@ export class ValidationService {
       above: undefined, // Not available in single row context
       below: undefined, // Not available in single row context
     };
+  }
+
+  /**
+   * Get display name for student, handling various cases
+   */
+  private static getDisplayName(studentName: string | undefined): string {
+    if (!studentName || studentName.trim() === '') {
+      return '학생정보_없음';
+    }
+    
+    const name = studentName.trim();
+    
+    // Handle specific cases from NEIS processing
+    if (name === '학생정보_미확인') {
+      return '학생정보_미확인';
+    }
+    
+    // Handle legacy "미상" case
+    if (name === '미상') {
+      return '학생정보_미상';
+    }
+    
+    // Return normal name
+    return name;
   }
 }
 

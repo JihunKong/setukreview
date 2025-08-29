@@ -37,6 +37,62 @@ export abstract class BaseValidator {
     };
   }
 
+  protected createErrorWithHighlight(
+    message: string,
+    rule: string,
+    severity: ValidationError['severity'] = 'error',
+    originalText: string = '',
+    suggestion?: string,
+    confidence?: number,
+    highlightRange?: { start: number; end: number },
+    contextBefore?: string,
+    contextAfter?: string
+  ): ValidationError {
+    let markedText: string | undefined = undefined;
+    
+    // Generate marked HTML if we have highlight range
+    if (highlightRange && originalText) {
+      const beforeText = originalText.substring(0, highlightRange.start);
+      const errorText = originalText.substring(highlightRange.start, highlightRange.end);
+      const afterText = originalText.substring(highlightRange.end);
+      
+      // Escape HTML entities for safety
+      const escapeHtml = (str: string) => 
+        str.replace(/&/g, '&amp;')
+           .replace(/</g, '&lt;')
+           .replace(/>/g, '&gt;')
+           .replace(/"/g, '&quot;')
+           .replace(/'/g, '&#39;');
+      
+      const severityClass = severity === 'error' ? 'error-highlight' : 
+                           severity === 'warning' ? 'warning-highlight' : 
+                           'info-highlight';
+      
+      markedText = `${escapeHtml(beforeText)}<mark class="${severityClass}" data-error-id="${this.type}">${escapeHtml(errorText)}</mark>${escapeHtml(afterText)}`;
+    }
+    
+    return {
+      id: `${this.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type: this.type,
+      severity,
+      message,
+      location: {
+        sheet: '',
+        row: 0,
+        column: '',
+        cell: ''
+      }, // Will be filled by ValidationService
+      originalText,
+      suggestion,
+      rule,
+      confidence,
+      highlightRange,
+      contextBefore,
+      contextAfter,
+      markedText
+    };
+  }
+
   protected isKoreanText(text: string): boolean {
     // Korean Unicode ranges: 
     // Hangul Syllables: AC00-D7AF
