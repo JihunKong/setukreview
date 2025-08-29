@@ -2,7 +2,7 @@ import axios from 'axios';
 import { ValidationResult, FileUploadResult, ValidationStats } from '../types/validation';
 
 const API_BASE = process.env.NODE_ENV === 'production' 
-  ? 'https://setukreview-backend-production.up.railway.app' // Point to backend Railway service
+  ? '' // Use relative URLs - nginx will proxy /api/ to backend
   : 'http://localhost:3001';
 
 console.log(`🌍 API Configuration - Environment: ${process.env.NODE_ENV}, API_BASE: ${API_BASE}`);
@@ -10,17 +10,35 @@ console.log(`🌍 API Configuration - Environment: ${process.env.NODE_ENV}, API_
 const api = axios.create({
   baseURL: `${API_BASE}/api`,
   timeout: 300000, // 5 minutes timeout for file uploads
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  // Don't set Content-Type here - let axios set it automatically based on data type
 });
 
 // Request interceptor to add auth headers and logging
 api.interceptors.request.use(
   (config) => {
+    console.log('🔍 ULTRA DEBUG - Interceptor processing request:', {
+      url: config.url,
+      method: config.method,
+      dataType: typeof config.data,
+      isFormData: config.data instanceof FormData,
+      dataSize: config.data instanceof FormData ? '[FormData object]' : JSON.stringify(config.data || {}).length
+    });
+    
+    // CRITICAL: Only set Content-Type for non-FormData requests
+    if (!(config.data instanceof FormData)) {
+      config.headers['Content-Type'] = 'application/json';
+      console.log('✅ Set Content-Type to application/json for non-FormData request');
+    } else {
+      console.log('✅ Skipping Content-Type for FormData - letting axios handle it automatically');
+      // Explicitly delete any Content-Type to ensure axios sets it correctly
+      delete config.headers['Content-Type'];
+    }
+    
     console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`, {
       baseURL: config.baseURL,
       headers: config.headers,
+      dataType: config.data instanceof FormData ? 'FormData' : typeof config.data,
+      finalContentType: config.headers['Content-Type'] || 'auto-detected by axios'
     });
     return config;
   },
@@ -68,9 +86,7 @@ export const fileUploadApi = {
     formData.append('file', file);
 
     const response = await api.post('/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      // Let axios set Content-Type automatically for multipart/form-data
     });
 
     return response.data;
@@ -83,8 +99,27 @@ export const fileUploadApi = {
 
   // === Multi-file Upload APIs ===
   createSession: async (userId?: string) => {
-    const response = await api.post('/upload/session', { userId });
-    return response.data;
+    console.log('🚨 EMERGENCY DEBUG API - createSession called with userId:', userId);
+    console.log('🚨 EMERGENCY DEBUG API - API base URL:', `${API_BASE}/api`);
+    
+    try {
+      const response = await api.post('/upload/session', { userId });
+      console.log('🚨 EMERGENCY DEBUG API - createSession response:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data,
+        headers: response.headers
+      });
+      return response.data;
+    } catch (error) {
+      console.error('🚨 EMERGENCY DEBUG API - createSession ERROR:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown',
+        response: (error as any)?.response?.data,
+        status: (error as any)?.response?.status
+      });
+      throw error;
+    }
   },
 
   uploadMultipleFiles: async (sessionId: string, files: File[]) => {
@@ -142,16 +177,48 @@ export const fileUploadApi = {
   },
 
   addFileToSession: async (sessionId: string, file: File) => {
+    console.log('🚨 ULTRA DEBUG - addFileToSession called:', {
+      sessionId,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type
+    });
+    
     const formData = new FormData();
     formData.append('file', file);
-
-    const response = await api.post(`/upload/session/${sessionId}/file`, formData, {
-      headers: {
-        // Let axios set Content-Type automatically for multipart/form-data
-      },
+    
+    console.log('🔍 ULTRA DEBUG - FormData created:', {
+      isFormData: formData instanceof FormData,
+      constructor: formData.constructor.name,
+      hasFile: formData.has('file'),
+      formDataString: formData.toString()
     });
 
-    return response.data;
+    try {
+      console.log('🚀 ULTRA DEBUG - About to send request with FormData');
+      
+      const response = await api.post(`/upload/session/${sessionId}/file`, formData);
+      // No headers object at all - let axios handle everything
+      
+      console.log('🚨 EMERGENCY DEBUG API - addFileToSession response:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data,
+        fileName: file.name
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('🚨 EMERGENCY DEBUG API - addFileToSession ERROR:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown',
+        response: (error as any)?.response?.data,
+        status: (error as any)?.response?.status,
+        fileName: file.name,
+        sessionId
+      });
+      throw error;
+    }
   },
 
   getSession: async (sessionId: string) => {
