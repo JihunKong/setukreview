@@ -7,6 +7,16 @@ import { AIValidator } from '../validators/AIValidator';
 import { DuplicateDetectionValidator } from '../validators/DuplicateDetectionValidator';
 import { AttendanceDuplicateValidator } from '../validators/AttendanceDuplicateValidator';
 import { CrossStudentDuplicateDetector } from '../validators/CrossStudentDuplicateDetector';
+// VBA-based validators
+import { VBAAlphabetValidator } from '../validators/VBAAlphabetValidator';
+import { DatePatternValidator } from '../validators/DatePatternValidator';
+import { KeywordProhibitionValidator } from '../validators/KeywordProhibitionValidator';
+import { EnhancedDuplicateValidator } from '../validators/EnhancedDuplicateValidator';
+// Additional VBA validators (newly discovered)
+import { SpellCheckValidator } from '../validators/SpellCheckValidator';
+import { SentenceLevelDuplicateValidator } from '../validators/SentenceLevelDuplicateValidator';
+import { ReadingActivityValidator } from '../validators/ReadingActivityValidator';
+import { SpacingNormalizationValidator } from '../validators/SpacingNormalizationValidator';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -72,15 +82,44 @@ export class ValidationService {
     const attendanceValidator = new AttendanceDuplicateValidator();
     const crossStudentDetector = new CrossStudentDuplicateDetector();
     
+    // VBA-enhanced validators
+    const vbaAlphabetValidator = new VBAAlphabetValidator();
+    const datePatternValidator = new DatePatternValidator();
+    const keywordProhibitionValidator = new KeywordProhibitionValidator();
+    const enhancedDuplicateValidator = new EnhancedDuplicateValidator();
+    
+    // Additional VBA validators (newly discovered from macro analysis)
+    const spellCheckValidator = new SpellCheckValidator();
+    const sentenceLevelDuplicateValidator = new SentenceLevelDuplicateValidator();
+    const readingActivityValidator = new ReadingActivityValidator();
+    const spacingNormalizationValidator = new SpacingNormalizationValidator();
+    
     const validators = [
+      // Core validators
       new KoreanEnglishValidator(),
       new InstitutionNameValidator(),
       new GrammarValidator(),
       new FormatValidator(),
-      duplicateDetector,
+      
+      // VBA-based validators (priority order based on analysis)
+      vbaAlphabetValidator,          // High priority: exact VBA alphabet detection
+      datePatternValidator,          // Important: VBA date format validation  
+      keywordProhibitionValidator,   // Critical: comprehensive keyword checking
+      spellCheckValidator,           // Korean spell checking (Module16.bas logic)
+      spacingNormalizationValidator, // Spacing validation (Module7.bas logic)
+      
+      // Duplicate detection (enhanced VBA logic + existing)
+      enhancedDuplicateValidator,    // VBA 15-character minimum + fuzzy matching
+      sentenceLevelDuplicateValidator, // Sentence-level duplicates (Module5.bas logic)
+      duplicateDetector,             // Keep existing for backward compatibility
       attendanceValidator,
       crossStudentDetector,
-      new AIValidator()  // AI validation last for context-aware checking
+      
+      // Specialized validators
+      readingActivityValidator,      // Reading activity parsing (Module2.bas logic)
+      
+      // AI validation last for context-aware checking
+      new AIValidator()
     ];
 
     let checkedCells = 0;
@@ -217,12 +256,25 @@ export class ValidationService {
 
     console.log(`📊 Starting generic validation for ${validationId}`);
 
-    // Initialize validators
+    // Initialize validators (including all VBA-based validators for comprehensive coverage)
     const validators = [
+      // Core validators
       new KoreanEnglishValidator(),
-      new InstitutionNameValidator(),
+      new InstitutionNameValidator(), 
       new GrammarValidator(),
       new FormatValidator(),
+      
+      // VBA-based validators for enhanced detection
+      new VBAAlphabetValidator(),
+      new DatePatternValidator(),
+      new KeywordProhibitionValidator(),
+      new SpellCheckValidator(),
+      new SpacingNormalizationValidator(),
+      new EnhancedDuplicateValidator(),
+      new SentenceLevelDuplicateValidator(),
+      new ReadingActivityValidator(),
+      
+      // AI validation last
       new AIValidator()
     ];
 
