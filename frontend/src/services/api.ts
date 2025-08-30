@@ -9,7 +9,7 @@ console.log(`🌍 API Configuration - Environment: ${process.env.NODE_ENV}, API_
 
 const api = axios.create({
   baseURL: `${API_BASE}/api`,
-  timeout: 300000, // 5 minutes timeout for file uploads
+  timeout: 900000, // 15 minutes timeout for validation (was 5 minutes)
   // Don't set Content-Type here - let axios set it automatically based on data type
 });
 
@@ -281,9 +281,13 @@ export const validationApi = {
 
   // === Session Validation APIs (matches backend) ===
   validateSession: async (sessionId: string) => {
-    const response = await api.post(`/validation/session/${sessionId}`, {}, {
-      timeout: 300000, // 5 minutes for validation
-    });
+    const response = await api.post(`/validation/session/${sessionId}`, {});
+    return response.data;
+  },
+
+  // Get session validation status (for real-time progress)
+  getSessionValidationStatus: async (sessionId: string) => {
+    const response = await api.get(`/validation/session/${sessionId}/status`);
     return response.data;
   },
 

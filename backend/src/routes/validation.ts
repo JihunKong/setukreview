@@ -404,7 +404,7 @@ router.get('/batch/stats/service', (req: Request, res: Response) => {
   });
 });
 
-// Direct session validation - validates ALL files and returns results immediately
+// Start async session validation - returns immediately
 router.post('/session/:sessionId', [
   param('sessionId').isUUID().withMessage('Invalid session ID')
 ], async (req: Request, res: Response) => {
@@ -419,7 +419,79 @@ router.post('/session/:sessionId', [
   try {
     const { sessionId } = req.params;
     
-    // Validate all files in the session directly
+    // Start validation asynchronously
+    const result = await selectiveValidationService.startSessionValidation(sessionId);
+    
+    res.json({
+      success: true,
+      ...result
+    });
+
+  } catch (error) {
+    console.error('Session validation start error:', error);
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start session validation'
+    });
+  }
+});
+
+// Get session validation status
+router.get('/session/:sessionId/status', [
+  param('sessionId').isUUID().withMessage('Invalid session ID')
+], (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  try {
+    const { sessionId } = req.params;
+    
+    // Get validation status
+    const status = selectiveValidationService.getSessionValidationStatus(sessionId);
+    
+    if (!status) {
+      return res.status(404).json({
+        success: false,
+        error: 'Session validation not found',
+        message: `No validation found for session: ${sessionId}`
+      });
+    }
+    
+    res.json({
+      success: true,
+      ...status
+    });
+
+  } catch (error) {
+    console.error('Session validation status error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get session validation status'
+    });
+  }
+});
+
+// Direct session validation (legacy) - validates ALL files and returns results immediately
+router.post('/session/:sessionId/sync', [
+  param('sessionId').isUUID().withMessage('Invalid session ID')
+], async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      details: errors.array()
+    });
+  }
+
+  try {
+    const { sessionId } = req.params;
+    
+    // Validate all files in the session directly (legacy method)
     const results = await selectiveValidationService.validateAllFilesSync(sessionId);
     
     res.json({

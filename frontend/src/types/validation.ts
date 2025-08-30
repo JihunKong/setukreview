@@ -23,6 +23,26 @@ export interface ValidationError {
   markedText?: string;      // HTML-formatted text with <mark> tags for highlighting
 }
 
+export interface SessionValidationStatus {
+  sessionId: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  progress: number;
+  startedAt: Date;
+  completedAt?: Date;
+  estimatedCompletionTime?: Date;
+  currentFile?: string;
+  totalFiles: number;
+  completedFiles: number;
+  failedFiles: number;
+  results: ValidationResult[];
+  summary: {
+    totalErrors: number;
+    totalWarnings: number;
+    totalInfo: number;
+    processingTimeSeconds: number;
+  };
+}
+
 export interface ValidationResult {
   id: string;
   fileName: string;

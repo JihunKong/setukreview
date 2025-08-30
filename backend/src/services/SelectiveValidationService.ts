@@ -31,6 +31,26 @@ export interface BatchValidationOptions {
   maxConcurrency?: number;
 }
 
+export interface SessionValidationStatus {
+  sessionId: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  progress: number;
+  startedAt: Date;
+  completedAt?: Date;
+  estimatedCompletionTime?: Date;
+  currentFile?: string;
+  totalFiles: number;
+  completedFiles: number;
+  failedFiles: number;
+  results: ValidationResult[];
+  summary: {
+    totalErrors: number;
+    totalWarnings: number;
+    totalInfo: number;
+    processingTimeSeconds: number;
+  };
+}
+
 export interface BatchValidationResult {
   batchId: string;
   sessionId: string;
@@ -57,6 +77,7 @@ export class SelectiveValidationService {
   private sessionManager: SessionManager;
   private batchValidations = new Map<string, BatchValidationResult>();
   private activeBatches = new Set<string>();
+  private sessionValidations = new Map<string, SessionValidationStatus>();
 
   private constructor() {
     this.sessionManager = SessionManager.getInstance();
@@ -156,6 +177,184 @@ export class SelectiveValidationService {
       ...options,
       validateAll: true
     });
+  }
+
+  /**
+   * Start async session validation and return immediately
+   */
+  async startSessionValidation(sessionId: string): Promise<{ sessionId: string; status: string; message: string }> {
+    const session = this.sessionManager.getSession(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    // Check if validation is already running
+    if (this.sessionValidations.has(sessionId)) {
+      const existing = this.sessionValidations.get(sessionId)!;
+      if (existing.status === 'processing' || existing.status === 'pending') {
+        return {
+          sessionId,
+          status: 'already_running',
+          message: 'Validation is already in progress for this session'
+        };
+      }
+    }
+
+    // Get all files to validate
+    const allFiles = this.sessionManager.getSessionFiles(sessionId);
+    if (allFiles.length === 0) {
+      throw new Error('No files found in session');
+    }
+
+    console.log(`🚀 Starting async validation for ${allFiles.length} files in session ${sessionId}`);
+
+    // Initialize session validation status
+    const sessionValidation: SessionValidationStatus = {
+      sessionId,
+      status: 'pending',
+      progress: 0,
+      startedAt: new Date(),
+      totalFiles: allFiles.length,
+      completedFiles: 0,
+      failedFiles: 0,
+      results: [],
+      summary: {
+        totalErrors: 0,
+        totalWarnings: 0,
+        totalInfo: 0,
+        processingTimeSeconds: 0
+      }
+    };
+
+    this.sessionValidations.set(sessionId, sessionValidation);
+
+    // Start validation in background (don't await)
+    this.processSessionValidationAsync(sessionId, allFiles).catch(error => {
+      console.error(`❌ Session validation failed for ${sessionId}:`, error);
+      const failedStatus = this.sessionValidations.get(sessionId);
+      if (failedStatus) {
+        failedStatus.status = 'failed';
+        failedStatus.completedAt = new Date();
+        this.sessionValidations.set(sessionId, failedStatus);
+      }
+    });
+
+    return {
+      sessionId,
+      status: 'started',
+      message: `Validation started for ${allFiles.length} files`
+    };
+  }
+
+  /**
+   * Get session validation status
+   */
+  getSessionValidationStatus(sessionId: string): SessionValidationStatus | null {
+    return this.sessionValidations.get(sessionId) || null;
+  }
+
+  /**
+   * Process session validation asynchronously
+   */
+  private async processSessionValidationAsync(sessionId: string, files: FileCategory[]): Promise<void> {
+    const sessionValidation = this.sessionValidations.get(sessionId);
+    if (!sessionValidation) {
+      throw new Error('Session validation status not found');
+    }
+
+    try {
+      sessionValidation.status = 'processing';
+      this.sessionValidations.set(sessionId, sessionValidation);
+
+      // Process files sequentially to provide consistent progress updates
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Update current file
+        sessionValidation.currentFile = file.fileName;
+        this.sessionValidations.set(sessionId, sessionValidation);
+        
+        console.log(`🔍 Processing file ${i + 1}/${files.length}: ${file.fileName}`);
+
+        try {
+          const result = await this.validateSingleFileSync(file);
+          
+          // Add to results
+          sessionValidation.results.push(result);
+          sessionValidation.completedFiles++;
+          
+          // Update summary
+          sessionValidation.summary.totalErrors += result.errors.length;
+          sessionValidation.summary.totalWarnings += result.warnings.length;
+          sessionValidation.summary.totalInfo += result.info.length;
+          
+        } catch (error) {
+          console.error(`❌ Validation failed for ${file.fileName}:`, error);
+          sessionValidation.failedFiles++;
+          
+          // Create failed result
+          const failedResult: ValidationResult = {
+            id: file.id,
+            fileName: file.fileName,
+            status: 'failed',
+            progress: 100,
+            errors: [{
+              id: uuidv4(),
+              type: 'ai_validation',
+              severity: 'error',
+              message: error instanceof Error ? error.message : 'Validation failed',
+              location: { sheet: 'unknown', cell: 'N/A', row: 0, column: 'N/A' },
+              originalText: '',
+              rule: 'System validation error',
+              confidence: 1.0,
+              suggestion: 'Please check the file format and try again'
+            }],
+            warnings: [],
+            info: [],
+            summary: {
+              totalCells: 0,
+              checkedCells: 0,
+              errorCount: 1,
+              warningCount: 0,
+              infoCount: 0
+            },
+            createdAt: new Date(),
+            completedAt: new Date()
+          };
+          
+          sessionValidation.results.push(failedResult);
+          sessionValidation.summary.totalErrors++;
+        }
+
+        // Update progress
+        const processedFiles = sessionValidation.completedFiles + sessionValidation.failedFiles;
+        sessionValidation.progress = Math.round((processedFiles / files.length) * 100);
+        
+        // Update processing time
+        sessionValidation.summary.processingTimeSeconds = 
+          Math.round((new Date().getTime() - sessionValidation.startedAt.getTime()) / 1000);
+        
+        this.sessionValidations.set(sessionId, sessionValidation);
+        
+        console.log(`✅ Progress: ${sessionValidation.progress}% (${processedFiles}/${files.length})`);
+      }
+
+      // Mark as completed
+      sessionValidation.status = 'completed';
+      sessionValidation.progress = 100;
+      sessionValidation.completedAt = new Date();
+      sessionValidation.currentFile = undefined;
+      this.sessionValidations.set(sessionId, sessionValidation);
+      
+      console.log(`🎉 Session validation completed for ${sessionId}: ${sessionValidation.completedFiles} files processed`);
+
+    } catch (error) {
+      console.error(`❌ Session validation error for ${sessionId}:`, error);
+      sessionValidation.status = 'failed';
+      sessionValidation.completedAt = new Date();
+      this.sessionValidations.set(sessionId, sessionValidation);
+      throw error;
+    }
   }
 
   /**

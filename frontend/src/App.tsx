@@ -16,7 +16,7 @@ import { MultiFileUpload, UploadedFile } from './components/MultiFileUpload';
 import BatchValidationResults from './components/BatchValidationResults/index';
 import { WaitingEntertainment } from './components/WaitingEntertainment';
 import { CategorySummary } from './components/CategorySidebar';
-import { ValidationResult } from './types/validation';
+import { ValidationResult, SessionValidationStatus } from './types/validation';
 import { fileUploadApi, validationApi } from './services/api';
 import { APP_VERSION, BUILD_TIMESTAMP, CACHE_BUSTER } from './version';
 
@@ -58,7 +58,9 @@ function App() {
   const [categories, setCategories] = useState<CategorySummary>({});
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   
-  // Validation state
+  // Validation state  
+  const [sessionValidationStatus, setSessionValidationStatus] = useState<SessionValidationStatus | null>(null);
+  const [validationPollingActive, setValidationPollingActive] = useState(false);
   const [batchValidation, setBatchValidation] = useState<BatchValidationState>({
     batchId: null,
     sessionId: null,
@@ -173,11 +175,14 @@ function App() {
 
     try {
       console.log(`🚀 Starting validation for selected categories: ${selectedCategories.join(', ')}`);
+      console.log(`🔍 Session ID: ${sessionId}`);
+      console.log(`📁 Total uploaded files: ${uploadedFiles.length}`);
       
       // For now, validate all files since backend doesn't support category filtering
       const result = await validationApi.validateSession(sessionId);
       
-      console.log(`✅ Validation completed for session ${sessionId}:`, result);
+      console.log(`✅ Validation API call completed for session ${sessionId}`);
+      console.log('🔍 ULTRA DEBUG - Full result object:', JSON.stringify(result, null, 2));
       
       if (result.success && result.results) {
         // Convert results array to Map, filtering by selected categories
@@ -219,11 +224,24 @@ function App() {
         }));
         
       } else {
-        throw new Error(result.message || '검증 결과를 받지 못했습니다.');
+        console.error('🚨 ULTRA DEBUG - Validation API returned unexpected result:', {
+          success: result.success,
+          hasResults: !!result.results,
+          resultsLength: result.results?.length,
+          message: result.message,
+          fullResult: result
+        });
+        throw new Error(result.message || `검증 결과를 받지 못했습니다. (success: ${result.success}, results: ${result.results ? result.results.length : 'none'})`);
       }
       
     } catch (error) {
-      console.error('Validation failed:', error);
+      console.error('🚨 ULTRA DEBUG - Validation failed with error:', {
+        error,
+        errorType: typeof error,
+        errorName: error instanceof Error ? error.name : 'Unknown',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : 'No stack trace'
+      });
       setError(error instanceof Error ? error.message : '검증 시작에 실패했습니다.');
       setBatchValidation(prev => ({ ...prev, status: 'failed' }));
     } finally {
@@ -238,11 +256,14 @@ function App() {
     setBatchValidation(prev => ({ ...prev, status: 'validating' }));
 
     try {
-      console.log(`🚀 Starting validation for category: ${category}`);
+      console.log(`🚀 Starting CATEGORY validation for: ${category}`);
+      console.log(`🔍 Session ID: ${sessionId}`);
+      console.log(`📁 Total uploaded files: ${uploadedFiles.length}`);
       
       const result = await validationApi.validateSession(sessionId);
       
-      console.log(`✅ Validation completed for session ${sessionId}:`, result);
+      console.log(`✅ CATEGORY validation API call completed for session ${sessionId}`);
+      console.log('🔍 ULTRA DEBUG - Full CATEGORY validation result:', JSON.stringify(result, null, 2));
       
       if (result.success && result.results) {
         // Convert results array to Map, filtering by selected category
@@ -281,11 +302,26 @@ function App() {
         }));
         
       } else {
-        throw new Error(result.message || '검증 결과를 받지 못했습니다.');
+        console.error('🚨 ULTRA DEBUG - CATEGORY validation API returned unexpected result:', {
+          category,
+          success: result.success,
+          hasResults: !!result.results,
+          resultsLength: result.results?.length,
+          message: result.message,
+          fullResult: result
+        });
+        throw new Error(result.message || `카테고리 검증 결과를 받지 못했습니다. (success: ${result.success}, results: ${result.results ? result.results.length : 'none'})`);
       }
       
     } catch (error) {
-      console.error('Category validation failed:', error);
+      console.error('🚨 ULTRA DEBUG - CATEGORY validation failed with error:', {
+        category,
+        error,
+        errorType: typeof error,
+        errorName: error instanceof Error ? error.name : 'Unknown',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : 'No stack trace'
+      });
       setError(error instanceof Error ? error.message : '카테고리 검증에 실패했습니다.');
       setBatchValidation(prev => ({ ...prev, status: 'failed' }));
     } finally {
@@ -300,52 +336,129 @@ function App() {
     setBatchValidation(prev => ({ ...prev, status: 'validating' }));
 
     try {
-      console.log(`🚀 Starting validation for session: ${sessionId}`);
-      const result = await validationApi.validateSession(sessionId);
+      console.log(`🚀 Starting ALL validation for session: ${sessionId}`);
+      console.log(`📁 Total uploaded files: ${uploadedFiles.length}`);
       
-      console.log(`✅ Validation completed for session ${sessionId}:`, result);
+      // Start async validation
+      const startResult = await validationApi.validateSession(sessionId);
       
-      if (result.success && result.results) {
-        // Convert results array to Map
-        const resultsMap = new Map<string, ValidationResult>();
-        
-        result.results.forEach((validationResult: any) => {
-          if (validationResult && validationResult.id) {
-            resultsMap.set(validationResult.id, validationResult as ValidationResult);
-          }
-        });
-        
-        console.log(`📊 Created results map with ${resultsMap.size} entries`);
-        
-        setBatchValidation({
-          batchId: sessionId, // Use sessionId as batchId
-          sessionId: result.sessionId,
-          status: 'completed',
-          progress: 100,
-          results: resultsMap,
-        });
-        
-        // Update file statuses
-        setUploadedFiles(prev => prev.map(file => {
-          const validationResult = resultsMap.get(file.id);
-          return validationResult ? {
-            ...file,
-            status: validationResult.status,
-            validationId: validationResult.id
-          } : file;
-        }));
+      console.log(`✅ Validation started for session ${sessionId}:`, startResult);
+      
+      if (startResult.success) {
+        // Start polling for status updates
+        setValidationPollingActive(true);
+        startValidationPolling(sessionId);
         
       } else {
-        throw new Error(result.message || '검증 결과를 받지 못했습니다.');
+        throw new Error(startResult.message || 'Failed to start validation');
       }
       
     } catch (error) {
-      console.error('Validation failed:', error);
-      setError(error instanceof Error ? error.message : '전체 검증에 실패했습니다.');
+      console.error('🚨 Failed to start validation:', error);
+      setError(error instanceof Error ? error.message : '검증 시작에 실패했습니다.');
       setBatchValidation(prev => ({ ...prev, status: 'failed' }));
-    } finally {
       setIsLoading(false);
     }
+  };
+
+  // Polling function for validation status updates
+  const startValidationPolling = (sessionId: string) => {
+    let pollAttempts = 0;
+    const maxPollAttempts = 180; // 15 minutes with 5 second intervals
+    
+    const pollStatus = async () => {
+      try {
+        pollAttempts++;
+        console.log(`📊 Polling validation status (${pollAttempts}/${maxPollAttempts})...`);
+        
+        const statusResult = await validationApi.getSessionValidationStatus(sessionId);
+        
+        if (statusResult.success) {
+          setSessionValidationStatus(statusResult);
+          
+          console.log(`📈 Progress: ${statusResult.progress}% - ${statusResult.status}`);
+          console.log(`🔄 Current file: ${statusResult.currentFile || 'N/A'}`);
+          console.log(`📊 Files: ${statusResult.completedFiles}/${statusResult.totalFiles}`);
+          
+          // Update batch validation for compatibility
+          setBatchValidation(prev => ({
+            ...prev,
+            progress: statusResult.progress,
+            status: statusResult.status === 'processing' ? 'validating' : 
+                   statusResult.status === 'completed' ? 'completed' : 
+                   statusResult.status === 'failed' ? 'failed' : prev.status
+          }));
+          
+          if (statusResult.status === 'completed') {
+            console.log('🎉 Validation completed!');
+            
+            // Convert results to Map for compatibility
+            const resultsMap = new Map<string, ValidationResult>();
+            statusResult.results.forEach((result: ValidationResult) => {
+              if (result && result.id) {
+                resultsMap.set(result.id, result);
+              }
+            });
+            
+            setBatchValidation({
+              batchId: sessionId,
+              sessionId: sessionId,
+              status: 'completed',
+              progress: 100,
+              results: resultsMap,
+            });
+            
+            // Update file statuses
+            setUploadedFiles(prev => prev.map(file => {
+              const validationResult = resultsMap.get(file.id);
+              return validationResult ? {
+                ...file,
+                status: validationResult.status,
+                validationId: validationResult.id
+              } : file;
+            }));
+            
+            setValidationPollingActive(false);
+            setIsLoading(false);
+            
+          } else if (statusResult.status === 'failed') {
+            console.error('❌ Validation failed');
+            setError('검증이 실패했습니다.');
+            setValidationPollingActive(false);
+            setIsLoading(false);
+            
+          } else if (pollAttempts >= maxPollAttempts) {
+            console.error('⏰ Polling timeout reached');
+            setError('검증이 너무 오래 걸리고 있습니다. 페이지를 새로고침해주세요.');
+            setValidationPollingActive(false);
+            setIsLoading(false);
+            
+          } else {
+            // Continue polling
+            setTimeout(pollStatus, 5000); // 5 second intervals
+          }
+          
+        } else {
+          throw new Error(statusResult.error || 'Failed to get validation status');
+        }
+        
+      } catch (error) {
+        console.error(`❌ Polling failed (attempt ${pollAttempts}):`, error);
+        
+        if (pollAttempts >= 3) {
+          // Stop polling after 3 consecutive failures
+          setError('검증 상태 확인에 실패했습니다.');
+          setValidationPollingActive(false);
+          setIsLoading(false);
+        } else {
+          // Retry after a delay
+          setTimeout(pollStatus, 5000);
+        }
+      }
+    };
+    
+    // Start polling immediately
+    pollStatus();
   };
 
   // Session validation returns results immediately - no polling needed
@@ -422,18 +535,26 @@ function App() {
     }
 
     if (batchValidation.status === 'validating') {
-      // Calculate estimated time remaining based on progress
-      const completedFiles = uploadedFiles.filter(f => f.status === 'completed').length;
-      const estimatedTimeRemaining = batchValidation.progress > 0 
-        ? Math.round(((100 - batchValidation.progress) / batchValidation.progress) * 60) // Rough estimate in seconds
-        : null;
+      // Use real-time session validation status if available
+      const progress = sessionValidationStatus?.progress ?? batchValidation.progress;
+      const currentFile = sessionValidationStatus?.currentFile;
+      const completedFiles = sessionValidationStatus?.completedFiles ?? uploadedFiles.filter(f => f.status === 'completed').length;
+      const totalFiles = sessionValidationStatus?.totalFiles ?? uploadedFiles.length;
+      
+      // Calculate estimated time remaining
+      const processingTimeSeconds = sessionValidationStatus?.summary.processingTimeSeconds ?? 0;
+      const estimatedTimeRemaining = progress > 0 && processingTimeSeconds > 0
+        ? Math.round(((100 - progress) / progress) * processingTimeSeconds)
+        : progress > 0 
+          ? Math.round(((100 - progress) / progress) * 60) // Fallback estimate
+          : null;
 
       return (
         <WaitingEntertainment
-          progress={batchValidation.progress}
+          progress={progress}
           estimatedTimeRemaining={estimatedTimeRemaining || undefined}
-          currentTask="파일 검증 중..."
-          totalFiles={uploadedFiles.length}
+          currentTask={currentFile ? `검증 중: ${currentFile}` : "파일 검증 중..."}
+          totalFiles={totalFiles}
           completedFiles={completedFiles}
         />
       );
