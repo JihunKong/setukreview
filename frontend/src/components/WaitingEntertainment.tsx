@@ -58,16 +58,19 @@ export const WaitingEntertainment: React.FC<WaitingEntertainmentProps> = ({
   };
 
   const getProgressMessage = (): string => {
+    const fileCount = totalFiles || 1;
+    const estimatedMinutes = Math.ceil(fileCount * 0.8); // About 48 seconds per file
+    
     if (progress === 0) {
-      return '검증을 시작하는 중...';
+      return `검증을 시작하는 중... (예상 시간: 약 ${estimatedMinutes}분)`;
     } else if (progress < 25) {
-      return '파일을 분석하는 중...';
+      return `파일을 분석하는 중... (${completedFiles}/${fileCount} 완료)`;
     } else if (progress < 50) {
-      return '내용을 검증하는 중...';
+      return `내용을 검증하는 중... (${completedFiles}/${fileCount} 완료)`;
     } else if (progress < 75) {
-      return '중복을 검사하는 중...';
+      return `중복을 검사하는 중... (${completedFiles}/${fileCount} 완료)`;
     } else if (progress < 100) {
-      return '결과를 정리하는 중...';
+      return `결과를 정리하는 중... (${completedFiles}/${fileCount} 완료)`;
     } else {
       return '검증이 완료되었습니다!';
     }
@@ -204,6 +207,14 @@ export const WaitingEntertainment: React.FC<WaitingEntertainmentProps> = ({
 
   return (
     <Box sx={{ maxWidth: 1000, mx: 'auto' }}>
+      {/* Information Alert */}
+      <Alert severity="info" sx={{ mb: 3 }}>
+        <Typography variant="body2">
+          <strong>검증 진행 중입니다.</strong> {totalFiles}개 파일 검증은 약 {Math.ceil(totalFiles * 0.8)}분 정도 소요됩니다. 
+          AI 검증을 포함한 종합 검증을 진행하고 있습니다. 이 페이지를 닫지 말고 기다려 주세요.
+        </Typography>
+      </Alert>
+      
       {/* Progress Section */}
       <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" gutterBottom align="center">

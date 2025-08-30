@@ -9,6 +9,13 @@ export class AIValidator extends BaseValidator {
   constructor() {
     super('ai_validation', 'AI Content Validator');
     
+    // Check if AI validation is explicitly disabled
+    if (process.env.DISABLE_AI_VALIDATION === 'true') {
+      console.log('🚫 AI validation explicitly disabled via DISABLE_AI_VALIDATION=true');
+      this.enabled = false;
+      return;
+    }
+    
     this.enabled = !!process.env.UPSTAGE_API_KEY;
     
     if (this.enabled) {
@@ -29,25 +36,49 @@ export class AIValidator extends BaseValidator {
     const errors: ValidationError[] = [];
     
     // Skip validation for empty cells, numbers only, dates, or very short text
-    if (!text || this.isOnlyNumbers(text) || this.isDateTime(text) || text.length < 10) {
+    if (!text || this.isOnlyNumbers(text) || this.isDateTime(text) || text.length < 15) {
       return errors;
     }
 
-    try {
-      // Use AI validation for longer, complex text that might have contextual issues
-      if (text.length > 20 && this.isKoreanText(text)) {
+    // More selective AI validation - only for substantial Korean text content
+    if (this.shouldUseAIValidation(text)) {
+      try {
         const aiErrors = await this.performAIValidation(text, context);
         errors.push(...aiErrors);
+      } catch (error) {
+        console.error('AI validation error:', error);
+        // Don't add errors for AI failures - just log and continue
       }
-    } catch (error) {
-      console.error('AI validation error:', error);
-      // Don't add errors for AI failures - just log and continue
     }
 
     return errors;
   }
 
-  private async performAIValidation(text: string, context: ValidationContext): Promise<ValidationError[]> {
+  private shouldUseAIValidation(text: string): boolean {
+    // Only validate text that is:
+    // 1. At least 25 characters long (more substantial content)
+    // 2. Contains Korean characters
+    // 3. Has some complexity (not just repeated patterns)
+    // 4. Likely to contain educational content that needs validation
+    
+    if (text.length < 25) return false;
+    if (!this.isKoreanText(text)) return false;
+    
+    // Skip overly repetitive text (like "동일 동일 동일...")
+    const uniqueChars = new Set(text.replace(/\s/g, '')).size;
+    if (uniqueChars < text.length * 0.3) return false;
+    
+    // Focus on educational content - look for key patterns
+    const educationalPatterns = [
+      /학습|교육|지도|활동|참여|태도|능력|향상|발전|성취|이해|표현|협력|소통|창의|사고|문제해결/,
+      /수업|과제|발표|토론|실험|관찰|체험|프로젝트|계획|실행|평가|반성/,
+      /독서|글쓰기|말하기|듣기|읽기|계산|분석|종합|적용|탐구/
+    ];
+    
+    return educationalPatterns.some(pattern => pattern.test(text));
+  }
+
+  private async performAIValidation(text: string, context: ValidationContext, retryCount = 0): Promise<ValidationError[]> {
     if (!this.openai) {
       return [];
     }
@@ -55,55 +86,72 @@ export class AIValidator extends BaseValidator {
     try {
       const prompt = this.buildValidationPrompt(text, context);
       
-      const response = await this.openai.chat.completions.create({
-        model: 'solar-pro',
-        messages: [
-          {
-            role: 'system',
-            content: `당신은 한국의 학교생활기록부 검증 전문가입니다. 학교생활기록부 작성 규정에 따라 텍스트를 검증하고, 문제가 있는 부분을 찾아 JSON 형식으로 응답해주세요.
+      // Add timeout and retry logic
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      try {
+        const response = await this.openai.chat.completions.create({
+          model: 'solar-pro',
+          messages: [
+            {
+              role: 'system',
+              content: `한국 학교생활기록부 검증 전문가로서 다음 텍스트를 빠르고 정확하게 검증해주세요. JSON 형식으로만 응답하세요.
 
-응답 형식:
 {
   "issues": [
     {
       "type": "content|grammar|appropriateness|style",
       "severity": "high|medium|low", 
       "message": "문제 설명",
-      "suggestion": "개선 제안",
-      "problemText": "문제가 있는 정확한 텍스트 부분",
+      "suggestion": "개선 제안", 
+      "problemText": "문제 부분",
       "confidence": 0.8
     }
   ]
 }
 
-검증 기준:
-1. 교육적 맥락에서의 적절성
-2. 학교생활기록부 작성 규정 준수
-3. 한국어 문법 및 표현의 자연스러움
-4. 내용의 구체성과 객관성
-5. 학생 개인정보 보호 관련 사항
+검증 기준: 학교생활기록부 작성 규정, 교육적 적절성, 한국어 문법, 객관성, 개인정보 보호`
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          max_tokens: 600, // Reduced for faster response
+          temperature: 0.2, // More deterministic
+        }, {
+          signal: controller.signal // Add timeout signal
+        });
 
-중요: "problemText"에는 원본 텍스트에서 정확히 일치하는 문제 부분을 포함해주세요.`
-          },
-          {
-            role: 'user',
-            content: prompt
+        clearTimeout(timeout);
+        
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+          return [];
+        }
+
+        return this.parseAIResponse(content, text);
+
+      } catch (error: any) {
+        clearTimeout(timeout);
+        
+        // Handle timeout and rate limiting with retry
+        if (error.name === 'AbortError' || error?.response?.status === 429 || error?.response?.status === 503) {
+          if (retryCount < 2) { // Max 2 retries
+            const backoffDelay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+            console.log(`AI validation retry ${retryCount + 1} after ${backoffDelay}ms for ${context.cell}`);
+            await new Promise(resolve => setTimeout(resolve, backoffDelay));
+            return this.performAIValidation(text, context, retryCount + 1);
           }
-        ],
-        max_tokens: 800,
-        temperature: 0.3,
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        return [];
+        }
+        
+        throw error;
       }
 
-      return this.parseAIResponse(content, text);
-
-    } catch (error) {
-      console.error('Upstage API error:', error);
-      return [];
+    } catch (error: any) {
+      console.error(`AI validation failed for ${context.cell}:`, error?.message || error);
+      return []; // Return empty array instead of throwing
     }
   }
 
@@ -129,7 +177,15 @@ export class AIValidator extends BaseValidator {
 
   private parseAIResponse(content: string, originalText: string): ValidationError[] {
     try {
-      const response = JSON.parse(content);
+      // More robust JSON extraction from AI response
+      const cleanedContent = this.extractJSONFromAIResponse(content);
+      
+      if (!cleanedContent) {
+        console.warn('No valid JSON found in AI response');
+        return [];
+      }
+      
+      const response = JSON.parse(cleanedContent);
       const errors: ValidationError[] = [];
 
       if (response.issues && Array.isArray(response.issues)) {
@@ -185,7 +241,55 @@ export class AIValidator extends BaseValidator {
 
     } catch (parseError) {
       console.error('Failed to parse AI response:', parseError);
+      console.error('Raw AI response (first 500 chars):', content.substring(0, 500));
       return [];
+    }
+  }
+
+  private extractJSONFromAIResponse(content: string): string | null {
+    try {
+      let cleanedContent = content.trim();
+      
+      // Method 1: Remove markdown code blocks
+      if (cleanedContent.includes('```json')) {
+        const jsonMatch = cleanedContent.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          cleanedContent = jsonMatch[1].trim();
+        }
+      } else if (cleanedContent.includes('```')) {
+        const codeMatch = cleanedContent.match(/```\s*([\s\S]*?)\s*```/);
+        if (codeMatch) {
+          cleanedContent = codeMatch[1].trim();
+        }
+      }
+      
+      // Method 2: Find JSON object boundaries
+      const jsonStart = cleanedContent.indexOf('{');
+      const jsonEnd = cleanedContent.lastIndexOf('}');
+      
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        cleanedContent = cleanedContent.substring(jsonStart, jsonEnd + 1);
+      }
+      
+      // Method 3: Remove common non-JSON text patterns
+      cleanedContent = cleanedContent
+        .replace(/^[^{]*/, '') // Remove text before first {
+        .replace(/[^}]*$/, '') // Remove text after last }
+        .trim();
+      
+      // Validate that we have something that looks like JSON
+      if (!cleanedContent.startsWith('{') || !cleanedContent.endsWith('}')) {
+        console.warn('Extracted content does not look like JSON:', cleanedContent.substring(0, 100));
+        return null;
+      }
+      
+      // Test parse to ensure it's valid JSON
+      JSON.parse(cleanedContent);
+      return cleanedContent;
+      
+    } catch (error) {
+      console.error('JSON extraction failed:', error);
+      return null;
     }
   }
 

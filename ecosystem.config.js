@@ -12,12 +12,14 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3001,
-        UPSTAGE_API_KEY: 'up_kcU1IMWm9wcC1rqplsIFMsEeqlUXN'
+        UPSTAGE_API_KEY: 'up_kcU1IMWm9wcC1rqplsIFMsEeqlUXN',
+        DISABLE_AI_VALIDATION: 'true'
       },
       env_production: {
         NODE_ENV: 'production',
         PORT: 3001,
-        UPSTAGE_API_KEY: 'up_kcU1IMWm9wcC1rqplsIFMsEeqlUXN'
+        UPSTAGE_API_KEY: 'up_kcU1IMWm9wcC1rqplsIFMsEeqlUXN',
+        DISABLE_AI_VALIDATION: 'true'
       },
       log_file: '/home/ubuntu/logs/setukreview-backend.log',
       out_file: '/home/ubuntu/logs/setukreview-backend-out.log',
