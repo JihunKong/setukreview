@@ -146,3 +146,20 @@ Thumbs.db
 
 # Test files
 coverage/
+
+# Security - Private keys and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+setukreview*.pem*
+
+# Sensitive files
+secrets/
+credentials/
+*.credential
+.secrets
